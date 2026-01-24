@@ -28,7 +28,7 @@ This bridge connects DCS-BIOS (which reads your aircraft's cockpit state) to you
 - **Linux** (tested on Ubuntu/Debian-based distros)
 - **Python 3.6+** (usually pre-installed)
 - **DCS World** (running through Steam/Proton, currently setup to work with steam installed via .deb package)
-- **DCS-BIOS** (git clone into the )
+- **DCS-BIOS** (setup below)
 
 ### Hardware
 
