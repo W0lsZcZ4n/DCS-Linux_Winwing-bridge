@@ -12,8 +12,8 @@ This bridge connects DCS-BIOS (which reads your aircraft's cockpit state) to you
 
 ### Currently Supported
 
-- **WinWing Orion 2 PTO2 Panel** - All 13 realistic LEDs (gear, flaps, hook, master caution, stations, etc.)
-- **WinWing Orion 2 Throttle** - Master mode buttons (A/A, A/G)
+- **WinWing Orion 2 PTO2 Panel** - Backlight, 13 LEDs (gear, flaps, hook, master caution, stations, etc.)
+- **WinWing Orion 2 Throttle** - Backlight, master mode buttons (A/A, A/G)
 - **WinWing Orion 2 Joystick** - (Ready for future features)
 
 ### Supported Aircraft
@@ -271,9 +271,13 @@ This is a community tool for personal use with DCS World and WinWing hardware. U
 
 ## Future changes
 
+- [ ] rewrite the script in order to omit the DCS-BIOS in favor of in-built DCS telemetry for richer data stream
+
+- [ ] implement hardware haptics control
+
 - [ ] adding other jets mappings, logically compatible with Winwing Orion2 devices
 
-- [ ] rewrite the script in order to omit the DCS-BIOS in favor of in-built DCS telemetry, 
+- [ ] setup automation, more user environment cases, daemon verision
 
 ---
 
