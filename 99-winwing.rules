@@ -1,0 +1,17 @@
+# Udev rules for WinWing devices
+# Allows user access to WinWing hardware without root
+
+# WinWing PTO2 Panel
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="4098", ATTRS{idProduct}=="bf05", MODE="0666", TAG+="uaccess"
+
+# WinWing Orion Throttle (F15EX)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="4098", ATTRS{idProduct}=="bd64", MODE="0666", TAG+="uaccess"
+
+# WinWing Orion Throttle (F18)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="4098", ATTRS{idProduct}=="be62", MODE="0666", TAG+="uaccess"
+
+# WinWing Orion Joystick (F16)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="4098", ATTRS{idProduct}=="bea8", MODE="0666", TAG+="uaccess"
+
+# WinWing Skywalker Rudder
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="4098", ATTRS{idProduct}=="bef0", MODE="0666", TAG+="uaccess"
