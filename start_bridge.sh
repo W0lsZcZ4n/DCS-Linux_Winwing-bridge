@@ -7,6 +7,9 @@ BRIDGE_SCRIPT="$SCRIPT_DIR/winwing_bridge.py"
 PID_FILE="$SCRIPT_DIR/.bridge.pid"
 LOG_FILE="$SCRIPT_DIR/bridge.log"
 
+# Default aircraft (set to empty string for auto-detect)
+AIRCRAFT="${AIRCRAFT:-FA18C}"
+
 start_bridge() {
     # Check if already running
     if [ -f "$PID_FILE" ]; then
@@ -22,8 +25,17 @@ start_bridge() {
 
     echo "Starting WinWing Bridge..."
 
-    # Start bridge in background
-    python3 "$BRIDGE_SCRIPT" --daemon >> "$LOG_FILE" 2>&1 &
+    # Build command with optional aircraft parameter
+    CMD="python3 -u $BRIDGE_SCRIPT --daemon"
+    if [ -n "$AIRCRAFT" ]; then
+        CMD="$CMD --aircraft $AIRCRAFT"
+        echo "  Aircraft: $AIRCRAFT"
+    else
+        echo "  Mode: Auto-detect"
+    fi
+
+    # Start bridge in background (use -u for unbuffered output)
+    $CMD >> "$LOG_FILE" 2>&1 &
     BRIDGE_PID=$!
 
     # Save PID
@@ -137,6 +149,14 @@ case "${1:-start}" in
         echo "  restart  - Restart the bridge"
         echo "  status   - Check if bridge is running"
         echo "  logs     - Follow log output"
+        echo ""
+        echo "Environment variables:"
+        echo "  AIRCRAFT - Aircraft to load (default: FA18C, empty for auto-detect)"
+        echo ""
+        echo "Examples:"
+        echo "  $0 start                    # Start with F/A-18C"
+        echo "  AIRCRAFT= $0 start          # Start with auto-detect"
+        echo "  AIRCRAFT=F16C $0 start      # Start with F-16C (when supported)"
         exit 1
         ;;
 esac
