@@ -194,4 +194,4 @@ DCS World → Export.lua (Lua, UDP) → telemetry_parser.py → telemetry_mappin
 
 ## License
 
-This is a community tool for personal use with DCS World and WinWing hardware. Use at your own risk.
+GNU GPL v3 License
