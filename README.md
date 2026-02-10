@@ -64,12 +64,12 @@ Copy the telemetry export script to your DCS Scripts folder:
 
 ```bash
 # For Steam .deb install:
-cp telemetry_prototype/Export.lua ~/.local/share/Steam/steamapps/compatdata/223750/pfx/drive_c/users/steamuser/Saved\ Games/DCS/Scripts/Export.lua
+cp Export.lua ~/.local/share/Steam/steamapps/compatdata/223750/pfx/drive_c/users/steamuser/Saved\ Games/DCS/Scripts/Export.lua
 ```
 
 ```bash
 # For Flatpak Steam:
-cp telemetry_prototype/Export.lua ~/.var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/compatdata/223750/pfx/drive_c/users/steamuser/Saved\ Games/DCS/Scripts/Export.lua
+cp Export.lua ~/.var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/compatdata/223750/pfx/drive_c/users/steamuser/Saved\ Games/DCS/Scripts/Export.lua
 ```
 
 ### 3. Set Up USB Permissions
@@ -159,8 +159,8 @@ groups
 
 LED argument numbers differ per aircraft module. To add a new aircraft:
 
-1. Use `telemetry_prototype/ArgDiscover.lua` to find the correct argument numbers
-2. Add a new entry to the `AIRCRAFT_ARGS` table in `telemetry_prototype/Export.lua`
+1. Use `ArgDiscover.lua` to find the correct argument numbers
+2. Add a new entry to the `AIRCRAFT_ARGS` table in `Export.lua`
 3. Copy the updated Export.lua to your DCS Scripts folder
 
 Haptic effects require no per-aircraft configuration — they use universal DCS telemetry APIs.
