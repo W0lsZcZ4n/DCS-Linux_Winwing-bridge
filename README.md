@@ -1,284 +1,197 @@
-# WinWing DCS-BIOS Bridge
+# WinWing DCS Telemetry Bridge
 
-Synchronize your WinWing hardware LEDs with DCS World cockpit indicators in real-time on Linux.
+Synchronize your WinWing hardware LEDs and haptic motors with DCS World in real-time on Linux.
 
 ## What Does This Do?
 
-This bridge connects DCS-BIOS (which reads your aircraft's cockpit state) to your WinWing hardware, making the LEDs on your panels and controllers match what you see in the game. When your landing gear indicator lights up in the cockpit, the LED on your physical panel lights up too!
+This bridge reads telemetry data directly from DCS World and maps it to your WinWing hardware:
 
-**Example:** Flip the landing gear lever in DCS → Gear indicator LEDs light up on your WinWing PTO2 panel → Gear locks down → LEDs turn off. All in real-time!
+- **LEDs** light up to match cockpit indicators (gear, flaps, master caution, stations, etc.)
+- **Haptic motors** provide physical feedback for flight events (gun fire, weapon release, gear transit, AOA buffeting, landing impact, ground roll)
+
+When your landing gear indicator lights up in the cockpit, the LED on your physical panel lights up too. When you fire the gun, you feel it through the throttle and stick.
+
+> **Note:** An earlier version of this project used DCS-BIOS for cockpit data. That dependency has been replaced entirely with DCS native telemetry via a custom Export.lua script — simpler installation, lower overhead, and more accurate haptic feedback.
 
 ## Supported Hardware
 
-### Currently Supported
+- **WinWing Orion 2 Throttle** — Backlight, master mode LEDs (A/A, A/G), haptic motor
+- **WinWing Orion 2 PTO2 Panel** — Backlight, 13 LEDs (gear, flaps, hook, master caution, stations, gear handle)
+- **WinWing Orion 2 Joystick** — Haptic motor
 
-- **WinWing Orion 2 PTO2 Panel** - Backlight, 13 LEDs (gear, flaps, hook, master caution, stations, etc.)
-- **WinWing Orion 2 Throttle** - Backlight, master mode buttons (A/A, A/G)
-- **WinWing Orion 2 Joystick** - (Ready for future features)
+## Supported Aircraft
 
-### Supported Aircraft
+| Aircraft       | LEDs                                | Haptics |
+| -------------- | ----------------------------------- | ------- |
+| F/A-18C Hornet | Full (all indicators)               | Full    |
+| F-16C Viper    | Partial (gear, master caution, A/A) | Full    |
 
-- **F/A-18C Hornet** - 13 cockpit indicators mapped ✅
-- More aircraft coming soon (F-16C, A-10C planned)
+Haptic effects are universal — they work on any aircraft without per-module configuration. LED support requires per-aircraft cockpit argument mappings (see [Adding Aircraft](#adding-aircraft-led-support)).
+
+## Haptic Effects
+
+| Effect                    | Trigger                                                                       | Both Motors |
+| ------------------------- | ----------------------------------------------------------------------------- | ----------- |
+| Gun fire                  | Ammo count decrease                                                           | Yes         |
+| Weapon/ fuel tank release | Station count decrease (weight-scaled intensity)                              | Yes         |
+| Ground wobble             | G-force while on ground (carrier compatible, detects acceleration, not speed) | Yes         |
+| Gear transit              | Gear position between 0 and 1                                                 | Yes         |
+| Gear lock clunk           | Gear reaches locked position                                                  | Yes         |
+| AOA buffeting             | AOA > 15° (scales to 35°)                                                     | Yes         |
+| Landing impact            | Strut compression spike on touchdown                                          | Yes         |
 
 ## Requirements
 
-### Software
+- **Linux** (tested on Ubuntu/Debian)
+- **Python 3.6+**
+- **DCS World** (via Steam/Proton)
+- WinWing Orion 2 devices (PTO2, Throttle, and/or Joystick)
 
-- **Linux** (tested on Ubuntu/Debian-based distros)
-- **Python 3.6+** (usually pre-installed)
-- **DCS World** (running through Steam/Proton, currently setup to work with steam installed via .deb package)
-- **DCS-BIOS** (setup below)
-
-### Hardware
-
-- WinWing Orion 2 devices (PTO2 Panel, Throttle, or Joystick)
-- USB connection to your PC
+No DCS-BIOS installation needed.
 
 ## Installation
 
-### 1. Install DCS-BIOS
-
-DCS-BIOS installation on Linux is straightforward - just clone and copy:
-
-```bash
-# Clone DCS-BIOS repository
-git clone https://github.com/DCS-Skunkworks/dcs-bios.git
-
-# Copy to DCS Scripts folder (adjust path if using standalone DCS)
-cp -r dcs-bios/Scripts/DCS-BIOS ~/.local/share/Steam/steamapps/compatdata/223750/pfx/drive_c/users/steamuser/Saved\ Games/DCS/Scripts/
-
-# Create Export.lua to load DCS-BIOS
-echo 'dofile(lfs.writedir() .. [[Scripts\DCS-BIOS\BIOS.lua]])' > ~/.local/share/Steam/steamapps/compatdata/223750/pfx/drive_c/users/steamuser/Saved\ Games/DCS/Scripts/Export.lua
-```
-
-No configuration changes needed! The bridge works with default DCS-BIOS settings.
-
-### 2. Clone This Repository
+### 1. Clone This Repository
 
 ```bash
 git clone https://github.com/W0lsZcZ4n/DCS-biosCustom.git
+cd DCS-biosCustom
+```
+
+### 2. Install Export.lua
+
+Copy the telemetry export script to your DCS Scripts folder:
+
+```bash
+# For Steam .deb install:
+cp telemetry_prototype/Export.lua ~/.local/share/Steam/steamapps/compatdata/223750/pfx/drive_c/users/steamuser/Saved\ Games/DCS/Scripts/Export.lua
+```
+
+```bash
+# For Flatpak Steam:
+cp telemetry_prototype/Export.lua ~/.var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/compatdata/223750/pfx/drive_c/users/steamuser/Saved\ Games/DCS/Scripts/Export.lua
 ```
 
 ### 3. Set Up USB Permissions
-
-Copy the udev rules file to allow non-root access to WinWing devices:
 
 ```bash
 sudo cp 99-winwing.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules
 sudo udevadm trigger
-```
-
-Add yourself to the `input` group:
-
-```bash
 sudo usermod -a -G input $USER
 ```
 
 **Log out and log back in** for the group change to take effect.
 
-### 4. Verify Setup
+### 4. Run the Bridge
 
-Run the setup checker to make sure everything is ready:
-
-```bash
-./check_setup.py
-```
-
-This will check:
-
-- ✓ Python installation
-- ✓ USB permissions
-- ✓ WinWing devices detected
-- ✓ DCS-BIOS installation
-- ✓ Network configuration
-
-Fix any issues it reports before continuing.
-
-## Quick Start
-
-### Test Your Hardware
-
-First, verify the bridge can communicate with your WinWing devices:
+**Directly:**
 
 ```bash
-./winwing_bridge.py --test-leds
+python3 telemetry_bridge.py
 ```
 
-You should see all LEDs flash in a test pattern. If this works, hardware communication is good!
-
-### Run the Bridge
-
-**Simple method (auto-detects aircraft):**
+**As a systemd service (recommended):**
 
 ```bash
-./winwing_bridge.py
+# Edit the ExecStart path in the service file to match your install location
+cp winwing-dcs-bridge.service ~/.config/systemd/user/
+systemctl --user enable winwing-dcs-bridge
+systemctl --user start winwing-dcs-bridge
 ```
 
-**Background mode:**
+The bridge uses adaptive sleep — it idles at 1Hz when DCS isn't running (near-zero CPU) and ramps up to 100Hz when telemetry data is flowing. Safe to leave running permanently.
 
-```bash
-./start_bridge.sh start
-```
+### 5. Use It
 
-Check status:
-
-```bash
-./start_bridge.sh status
-```
-
-Stop the bridge:
-
-```bash
-./start_bridge.sh stop
-```
-
-### Use It!
-
-1. Start the bridge (see above)
+1. Start the bridge (or let systemd handle it)
 2. Launch DCS World
-3. Enter an F/A-18C cockpit
-4. Watch your LEDs sync automatically! 🎉
+3. Enter a cockpit
+4. LEDs sync and haptics activate automatically
 
-The bridge will print status updates:
-
-```
-[DCS-BIOS] Listening on multicast 239.255.50.10:5010
-Aircraft Changed: FA18C
-Loaded 15 LED mappings for FA18C
-[Status] ✓ RECEIVING DATA | Aircraft: FA18C | Packets: 1523
-```
-
-## How to Use
-
-### In Flight
-
-Once running, the bridge works automatically, following your cockpit inputs.
-
-### Testing Individual Features
-
-Want to test specific LEDs? Use the diagnostic tool:
+## Service Management
 
 ```bash
-./diagnose.py
-```
+# Check status
+systemctl --user status winwing-dcs-bridge
 
-This shows live DCS-BIOS data and confirms which indicators are active.
+# View logs
+journalctl --user -u winwing-dcs-bridge -f
+
+# Restart after code changes
+systemctl --user restart winwing-dcs-bridge
+
+# Test LEDs (run directly, not via service)
+python3 telemetry_bridge.py --test-leds
+
+# Debug mode — verbose output showing LED state changes, haptic triggers, AOA, etc.
+python3 telemetry_bridge.py --debug
+```
 
 ## Troubleshooting
 
 ### No WinWing devices found
 
 ```bash
-# Check if devices show up
+# Check if devices are connected
 lsusb | grep 4098
 
-# Check USB device files exist
+# Check USB device files
 ls -la /dev/hidraw*
 
 # Verify you're in the input group
 groups
 ```
 
-If `input` is not in the list, log out and back in after running the `usermod` command.
+### No telemetry data
 
-### No DCS-BIOS data received
+1. Make sure DCS World is running and you're in the cockpit
+2. Make sure `Export.lua` is installed in the correct DCS Scripts folder
+3. Check the DCS log at `Saved Games/DCS/Logs/WinWing_Export.log`
 
-1. Make sure DCS World is running
-2. Make sure you're **in the cockpit** (not external view or menu)
-3. Verify DCS-BIOS is installed correctly
-4. Check firewall isn't blocking UDP multicast (port 5010)
+### LEDs not changing
 
-Test DCS-BIOS connection:
+1. Run `python3 telemetry_bridge.py --test-leds` to verify hardware works
+2. Make sure you're flying a supported aircraft (F/A-18C or F-16C)
+3. Check bridge output for error messages
 
-```bash
-./diagnose.py
+## Adding Aircraft LED Support
+
+LED argument numbers differ per aircraft module. To add a new aircraft:
+
+1. Use `telemetry_prototype/ArgDiscover.lua` to find the correct argument numbers
+2. Add a new entry to the `AIRCRAFT_ARGS` table in `telemetry_prototype/Export.lua`
+3. Copy the updated Export.lua to your DCS Scripts folder
+
+Haptic effects require no per-aircraft configuration — they use universal DCS telemetry APIs.
+
+## Architecture
+
+```
+DCS World → Export.lua (Lua, UDP) → telemetry_parser.py → telemetry_mappings.py → WinWing Hardware
+                                                                    ↓
+                                                        ┌───────────┴───────────┐
+                                                        ↓                       ↓
+                                                  LEDs (PTO2, Throttle)   Motors (Throttle, Joystick)
 ```
 
-Should show "✓ RECEIVING DATA" when in cockpit.
-
-### LEDs not changing in flight
-
-1. Run `--test-leds` first to verify hardware works
-2. Check the bridge console for error messages
-3. Make sure you're flying the F/A-18C (only supported aircraft currently)
-4. Verify the specific cockpit indicator is actually active in DCS
-
-### Bridge crashes or freezes
-
-Check the log file:
-
-```bash
-tail -f bridge.log
-```
-
-Report issues with the log output.
-
-## Updating the Bridge
-
-```bash
-cd ~/Documents/DCS-biosCustom
-git pull
-```
-
-Then restart the bridge.
-
-## Advanced Usage
-
-### Manual Aircraft Selection
-
-If auto-detection isn't working:
-
-```bash
-./winwing_bridge.py --aircraft FA18C
-```
-
-### Custom Port
-
-If you modified your DCS-BIOS configuration:
-
-```bash
-./winwing_bridge.py --port 5010
-```
-
-## Contributing
-
-Contributions welcome! If you:
-
-- Add support for new aircraft
-- Fix bugs
-- Improve documentation
-- Add new features
-
-Please open a pull request!
+- `Export.lua` runs inside DCS, reads cockpit arguments and telemetry APIs, sends JSON via UDP at 30Hz
+- `telemetry_parser.py` receives packets, tracks state changes, fires callbacks
+- `telemetry_mappings.py` maps telemetry data to hardware outputs (LEDs and haptic effects)
+- `winwing_devices.py` communicates with WinWing hardware via HID
 
 ## Credits
 
 - **Protocol reverse engineering**: Based on [PTO2-for-BMS](https://github.com/ExoLightFR/PTO2-for-BMS) by ExoLightFR
-- **DCS-BIOS**: By the [DCS-BIOS team](https://github.com/DCS-Skunkworks/dcs-bios)
+- [**DCS-Bios**]([GitHub - DCS-Skunkworks/dcs-bios: Data export tool for DCS.](https://github.com/DCS-Skunkworks/dcs-bios)): tool was helpful in initial version and reverse engineering efforts, now deprecated, still great project!
 - **Development**: Built for the DCS Linux community
+
+## Other DCS on Linux with WinCtrl troubleshooting
+
+-  **The Orion2 Throttle 80 buttons cap:** There's an great kernel module for that-**[linux-winwing](https://github.com/igorinov/linux-winwing).** Should be by default on kernels above v.6.10. The setup is pretty straightforward.
+- **The Orion2 joystick buttons not reading:**I tried to write something to fix that, but I mostly did break stuff. It could be related to the weird naming convention, which is rejected by the way proton/wine handles those. Personally i use  [**input-remapper**](https://github.com/sezanzeb/input-remapper) and map everything to the keyboard combinations with right ctrl key. Axes work fine, and if there are issues, i map those to the virtual gamepad. Not elegant, but works.
+- **OpenTrack- head tracking:** I recommend using [**opentrack-launcher**](https://github.com/markx86/opentrack-launcher) that runs [opentrack](https://github.com/opentrack/opentrack) inside proton layer. There was issue with proton versions >10.17, so i just stick to 10.17 at the time of writing this. Generally it's pretty reliable.
 
 ## License
 
 This is a community tool for personal use with DCS World and WinWing hardware. Use at your own risk.
-
-## Support
-
-- **Issues**: Open an issue on GitHub
-- **Discussions**: Use GitHub Discussions
-- **DCS-BIOS Help**: Visit the [official DCS-BIOS repository](https://github.com/DCS-Skunkworks/dcs-bios)
-
-## Future changes
-
-- [ ] rewrite the script in order to omit the DCS-BIOS in favor of in-built DCS telemetry for richer data stream
-
-- [ ] implement hardware haptics control
-
-- [ ] adding other jets mappings, logically compatible with Winwing Orion2 devices
-
-- [ ] setup automation, more user environment cases, daemon verision
-
----
-
-**Happy flying!** 🚀

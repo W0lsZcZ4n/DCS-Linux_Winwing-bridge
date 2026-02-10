@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.claude/
+archive/
+bridge.log
+.bridge.pid
+md's/
+telemetry_prototype/

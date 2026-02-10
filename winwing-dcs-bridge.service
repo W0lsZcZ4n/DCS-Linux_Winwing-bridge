@@ -1,0 +1,16 @@
+[Unit]
+Description=WinWing DCS Telemetry Bridge
+Documentation=https://github.com/W0lsZcZ4n/DCS-biosCustom
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -u %h/Documents/Claude/DCS-biosCustom/telemetry_bridge.py
+Restart=on-failure
+RestartSec=5
+
+# The bridge idles at 1Hz when DCS isn't running, so it's safe to keep always-on
+# Logs go to journalctl: journalctl --user -u winwing-dcs-bridge -f
+
+[Install]
+WantedBy=default.target
