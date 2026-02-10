@@ -2,7 +2,7 @@
 
 Synchronize your WinWing hardware LEDs and haptic motors with DCS World in real-time on Linux.
 
-## What Does This Do?
+## What is it for?
 
 This bridge reads telemetry data directly from DCS World and maps it to your WinWing hardware:
 
