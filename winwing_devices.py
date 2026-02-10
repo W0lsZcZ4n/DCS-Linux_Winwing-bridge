@@ -4,6 +4,7 @@ Handles HID communication with WinWing devices
 """
 import os
 import glob
+import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -103,8 +104,24 @@ class PTO2Controller:
             self.handle = None
             print("[PTO2] Disconnected")
 
+    def _reconnect(self) -> bool:
+        """Try to re-find and reopen the device"""
+        try:
+            if self.handle:
+                self.handle.close()
+                self.handle = None
+            self.device.hidraw_path = self.device._find_hidraw()
+            if self.device.hidraw_path:
+                self.handle = open(self.device.hidraw_path, 'wb', buffering=0)
+                print(f"[PTO2] Reconnected to {self.device.hidraw_path}")
+                return True
+        except Exception as e:
+            print(f"[PTO2] Reconnect failed: {e}")
+        self.handle = None
+        return False
+
     def _send_command(self, led_id: int, value: int):
-        """Send HID command to device"""
+        """Send HID command to device, auto-reconnect on failure"""
         if not self.handle:
             return
 
@@ -113,7 +130,13 @@ class PTO2Controller:
             self.handle.write(cmd)
             self.handle.flush()
         except Exception as e:
-            print(f"[PTO2] Command failed: {e}")
+            print(f"[PTO2] Command failed: {e} — attempting reconnect")
+            if self._reconnect():
+                try:
+                    self.handle.write(cmd)
+                    self.handle.flush()
+                except Exception:
+                    pass
 
     def set_led(self, led_id: int, state: bool):
         """Set LED on/off (for individual LEDs 0x04-0x11)"""
@@ -181,6 +204,41 @@ class OrionThrottleController:
             self.handle = None
             print("[Orion Throttle] Disconnected")
 
+    def _reconnect(self) -> bool:
+        """Try to re-find and reopen the device"""
+        try:
+            if self.handle:
+                self.handle.close()
+                self.handle = None
+            self.device.hidraw_path = self.device._find_hidraw()
+            if self.device.hidraw_path:
+                self.handle = open(self.device.hidraw_path, 'wb', buffering=0)
+                print(f"[Orion Throttle] Reconnected to {self.device.hidraw_path}")
+                return True
+        except Exception as e:
+            print(f"[Orion Throttle] Reconnect failed: {e}")
+        self.handle = None
+        return False
+
+    def _write_cmd(self, cmd: bytes, label: str):
+        """Write command with auto-reconnect on failure"""
+        if not self.handle:
+            return False
+        try:
+            self.handle.write(cmd)
+            self.handle.flush()
+            return True
+        except Exception as e:
+            print(f"[Orion Throttle] {label} failed: {e} — attempting reconnect")
+            if self._reconnect():
+                try:
+                    self.handle.write(cmd)
+                    self.handle.flush()
+                    return True
+                except Exception:
+                    pass
+        return False
+
     def set_led(self, led_id: int, value):
         """Set LED (brightness 0-255 for backlight, bool for buttons)"""
         if not self.handle:
@@ -192,11 +250,7 @@ class OrionThrottleController:
             value = max(0, min(255, value))
 
         cmd = bytes(self.LED_PREFIX + [0x00, 0x00, 0x03, 0x49, led_id, value, 0x00, 0x00, 0x00, 0x00, 0x00])
-        try:
-            self.handle.write(cmd)
-            self.handle.flush()
-        except Exception as e:
-            print(f"[Orion Throttle] LED command failed: {e}")
+        self._write_cmd(cmd, "LED command")
 
     def set_motor(self, intensity: int):
         """Set haptic motor intensity (0-255)"""
@@ -206,12 +260,8 @@ class OrionThrottleController:
         intensity = max(0, min(255, intensity))
         cmd = bytes(self.MOTOR_PREFIX + [0x00, 0x00, 0x03, 0x49, self.HAPTIC_MOTOR, intensity, 0x00, 0x00, 0x00, 0x00, 0x00])
 
-        try:
-            self.handle.write(cmd)
-            self.handle.flush()
+        if self._write_cmd(cmd, "Motor command"):
             self._motor_active = (intensity > 0)
-        except Exception as e:
-            print(f"[Orion Throttle] Motor command failed: {e}")
 
     def pulse_motor(self, intensity: int, duration_ms: int):
         """Pulse motor for a duration (requires timer in main loop)"""
@@ -255,6 +305,22 @@ class OrionJoystickController:
             self.handle = None
             print("[Orion Joystick] Disconnected")
 
+    def _reconnect(self) -> bool:
+        """Try to re-find and reopen the device"""
+        try:
+            if self.handle:
+                self.handle.close()
+                self.handle = None
+            self.device.hidraw_path = self.device._find_hidraw()
+            if self.device.hidraw_path:
+                self.handle = open(self.device.hidraw_path, 'wb', buffering=0)
+                print(f"[Orion Joystick] Reconnected to {self.device.hidraw_path}")
+                return True
+        except Exception as e:
+            print(f"[Orion Joystick] Reconnect failed: {e}")
+        self.handle = None
+        return False
+
     def set_motor(self, intensity: int):
         """Set haptic motor intensity (0-255)"""
         if not self.handle:
@@ -267,7 +333,13 @@ class OrionJoystickController:
             self.handle.write(cmd)
             self.handle.flush()
         except Exception as e:
-            print(f"[Orion Joystick] Motor command failed: {e}")
+            print(f"[Orion Joystick] Motor command failed: {e} — attempting reconnect")
+            if self._reconnect():
+                try:
+                    self.handle.write(cmd)
+                    self.handle.flush()
+                except Exception:
+                    pass
 
 
 class DeviceManager:
