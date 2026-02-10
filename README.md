@@ -191,7 +191,3 @@ DCS World → Export.lua (Lua, UDP) → telemetry_parser.py → telemetry_mappin
 -  **The Orion2 Throttle 80 buttons cap:** There's an great kernel module for that-**[linux-winwing](https://github.com/igorinov/linux-winwing).** Should be by default on kernels above v.6.10. The setup is pretty straightforward.
 - **The Orion2 joystick buttons not reading:**I tried to write something to fix that, but I mostly did break stuff. It could be related to the weird naming convention, which is rejected by the way proton/wine handles those. Personally i use  [**input-remapper**](https://github.com/sezanzeb/input-remapper) and map everything to the keyboard combinations with right ctrl key. Axes work fine, and if there are issues, i map those to the virtual gamepad. Not elegant, but works.
 - **OpenTrack- head tracking:** I recommend using [**opentrack-launcher**](https://github.com/markx86/opentrack-launcher) that runs [opentrack](https://github.com/opentrack/opentrack) inside proton layer. There was issue with proton versions >10.17, so i just stick to 10.17 at the time of writing this. Generally it's pretty reliable.
-
-## License
-
-GNU GPL v3 License
