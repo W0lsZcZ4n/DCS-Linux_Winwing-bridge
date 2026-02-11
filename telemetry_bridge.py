@@ -2,18 +2,18 @@
 """
 WinWing DCS Native Telemetry Bridge
 
-Complete replacement for DCS-BIOS based winwing_bridge.py
-Uses DCS native telemetry for both LED control and haptic feedback
+Uses DCS native telemetry for LED control and haptic feedback
 
-Benefits:
-- Simpler installation (one Export.lua vs. full DCS-BIOS)
-- 100% accurate haptics (internal sim state, not cockpit approximations)
-- Lower overhead (direct UDP, no protocol translation)
-- Linux-friendly (pure Lua + Python)
+Architecture:
+- DCS Export.lua sends JSON telemetry via UDP
+- Bridge maps telemetry to WinWing HID commands
+- Runs as a systemd user service
 """
 
 import sys
+import signal
 import time
+import threading
 import argparse
 
 from telemetry_parser import TelemetryParser, FA18C_TelemetryHelper
@@ -43,53 +43,73 @@ class TelemetryBridge:
         self.pto2 = None
         self.joystick = None
 
-        # State
-        self.running = False
+        # Shutdown event — replaces boolean flag, instantly wakes sleeping threads
+        self._stop = threading.Event()
+
+        # Hot-plug tracking
+        self._last_device_check = 0
+
+        # Handle SIGTERM (systemd stop) same as Ctrl+C
+        signal.signal(signal.SIGTERM, self._handle_signal)
+
+    # Device scan interval
+    DEVICE_SCAN_INTERVAL = 5.0    # Retry every 5s
+
+    def _handle_signal(self, signum, frame):
+        """Handle SIGTERM/SIGINT for clean shutdown"""
+        print(f"\nReceived signal {signum}, shutting down...")
+        self._stop.set()
 
     def initialize_hardware(self):
-        """Detect and initialize WinWing hardware"""
+        """Detect and initialize WinWing hardware, retrying until found"""
         print("=== Detecting WinWing Hardware ===")
 
-        try:
-            self.throttle = OrionThrottleController()
-            if self.throttle.device.hidraw_path and self.throttle.connect():
-                print(f"✓ Throttle: {self.throttle.device.hidraw_path}")
-            else:
-                print(f"✗ Throttle: Not found or failed to connect")
-                self.throttle = None
-        except Exception as e:
-            print(f"✗ Throttle: Not found ({e})")
+        logged_no_devices = False
+
+        while not self._stop.is_set():
             self.throttle = None
-
-        try:
-            self.pto2 = PTO2Controller()
-            if self.pto2.device.hidraw_path and self.pto2.connect():
-                print(f"✓ PTO2 Panel: {self.pto2.device.hidraw_path}")
-            else:
-                print(f"✗ PTO2 Panel: Not found or failed to connect")
-                self.pto2 = None
-        except Exception as e:
-            print(f"✗ PTO2 Panel: Not found ({e})")
             self.pto2 = None
-
-        try:
-            self.joystick = OrionJoystickController()
-            if self.joystick.device.hidraw_path and self.joystick.connect():
-                print(f"✓ Joystick: {self.joystick.device.hidraw_path}")
-            else:
-                print(f"✗ Joystick: Not found or failed to connect")
-                self.joystick = None
-        except Exception as e:
-            print(f"✗ Joystick: Not found ({e})")
             self.joystick = None
 
-        if not any([self.throttle, self.pto2, self.joystick]):
-            print("\n❌ No WinWing devices found!")
-            print("Check USB connections and udev rules (99-winwing.rules)")
-            return False
+            try:
+                t = OrionThrottleController()
+                if t.device.hidraw_path and t.connect():
+                    print(f"✓ Throttle: {t.device.hidraw_path}")
+                    self.throttle = t
+            except Exception:
+                pass
 
-        print()
-        return True
+            try:
+                p = PTO2Controller()
+                if p.device.hidraw_path and p.connect():
+                    print(f"✓ PTO2 Panel: {p.device.hidraw_path}")
+                    self.pto2 = p
+            except Exception:
+                pass
+
+            try:
+                j = OrionJoystickController()
+                if j.device.hidraw_path and j.connect():
+                    print(f"✓ Joystick: {j.device.hidraw_path}")
+                    self.joystick = j
+            except Exception:
+                pass
+
+            if any([self.throttle, self.pto2, self.joystick]):
+                logged_no_devices = False
+                print()
+                return True
+
+            # Log once, then stay quiet until state changes
+            if not logged_no_devices:
+                print("[Hardware] No WinWing devices found — retrying in background")
+                print("[Hardware] Check USB connections and udev rules (99-winwing.rules)")
+                logged_no_devices = True
+
+            self._stop.wait(self.DEVICE_SCAN_INTERVAL)
+
+        # Stopped by signal before finding devices
+        return False
 
     def initialize_telemetry(self):
         """Initialize telemetry parser and mappings"""
@@ -124,7 +144,6 @@ class TelemetryBridge:
         print("Waiting for DCS telemetry...")
         print("Press Ctrl+C to stop\n")
 
-        self.running = True
         last_status_print = 0
         was_idle = True
 
@@ -132,7 +151,7 @@ class TelemetryBridge:
         self._all_off()
 
         try:
-            while self.running:
+            while not self._stop.is_set():
                 # Process telemetry
                 received = self.parser.process()
 
@@ -143,6 +162,10 @@ class TelemetryBridge:
                 # Update time-based effects only when active
                 if not idle and self.mapping_manager:
                     self.mapping_manager.update()
+
+                # Hot-plug: scan for missing devices while idle
+                if idle:
+                    self._check_devices()
 
                 # State transitions
                 if idle and not was_idle:
@@ -156,13 +179,14 @@ class TelemetryBridge:
                     print(f"[Status] Data received — active (100Hz)")
                 was_idle = idle
 
-                # Print status every 5 seconds when active, every 30 when idle
-                status_interval = 30.0 if idle else 5.0
-                if now - last_status_print > status_interval:
-                    self._print_status(stats)
-                    last_status_print = now
+                # Periodic status only in debug mode to avoid journal clutter
+                if self.debug:
+                    status_interval = 30.0 if idle else 5.0
+                    if now - last_status_print > status_interval:
+                        self._print_status(stats)
+                        last_status_print = now
 
-                time.sleep(self.SLEEP_IDLE if idle else self.SLEEP_ACTIVE)
+                self._stop.wait(self.SLEEP_IDLE if idle else self.SLEEP_ACTIVE)
 
         except KeyboardInterrupt:
             print("\n\nShutting down...")
@@ -216,6 +240,58 @@ class TelemetryBridge:
             time.sleep(0.3)
 
         print("\n✓ LED test complete")
+
+    def _check_devices(self):
+        """Check for newly plugged devices and wire them up"""
+        now = time.time()
+        if now - self._last_device_check < self.DEVICE_SCAN_INTERVAL:
+            return
+        self._last_device_check = now
+
+        # Nothing to do if all devices are already connected
+        if self.throttle and self.pto2 and self.joystick:
+            return
+
+        found_new = False
+
+        if self.throttle is None:
+            try:
+                t = OrionThrottleController()
+                if t.device.hidraw_path and t.connect():
+                    self.throttle = t
+                    print(f"[Hardware] Throttle connected at {t.device.hidraw_path}")
+                    found_new = True
+            except Exception:
+                pass
+
+        if self.pto2 is None:
+            try:
+                p = PTO2Controller()
+                if p.device.hidraw_path and p.connect():
+                    self.pto2 = p
+                    print(f"[Hardware] PTO2 Panel connected at {p.device.hidraw_path}")
+                    found_new = True
+            except Exception:
+                pass
+
+        if self.joystick is None:
+            try:
+                j = OrionJoystickController()
+                if j.device.hidraw_path and j.connect():
+                    self.joystick = j
+                    print(f"[Hardware] Joystick connected at {j.device.hidraw_path}")
+                    found_new = True
+            except Exception:
+                pass
+
+        if found_new and self.mapping_manager:
+            self.parser.clear_subscriptions()
+            self.mapping_manager.clear_mappings()
+            self.mapping_manager.load_mappings(
+                throttle=self.throttle,
+                pto2=self.pto2,
+                joystick=self.joystick
+            )
 
     def _all_off(self):
         """Turn off all LEDs, backlights, and motors"""
@@ -302,7 +378,7 @@ Note:
     # Banner
     print("=" * 60)
     print("WinWing DCS Native Telemetry Bridge")
-    print("Replaces DCS-BIOS with native telemetry")
+    print("Native telemetry for LED and haptic feedback")
     print("=" * 60)
     print()
 

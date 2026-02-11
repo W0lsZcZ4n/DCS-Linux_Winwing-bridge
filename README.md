@@ -11,7 +11,7 @@ This bridge reads telemetry data directly from DCS World and maps it to your Win
 
 When your landing gear indicator lights up in the cockpit, the LED on your physical panel lights up too. When you fire the gun, you feel it through the throttle and stick.
 
-> **Note:** An earlier version of this project used DCS-BIOS for cockpit data. That dependency has been replaced entirely with DCS native telemetry via a custom Export.lua script — simpler installation, lower overhead, and more accurate haptic feedback.
+> 
 
 ## Supported Hardware
 
@@ -52,8 +52,8 @@ Haptic effects are universal — they work on any aircraft without per-module co
 ### 1. Clone This Repository
 
 ```bash
-git clone https://github.com/W0lsZcZ4n/DCS-biosCustom.git
-cd DCS-biosCustom
+git clone https://github.com/W0lsZcZ4n/DCS-Linux_Winwing-bridge.git
+cd DCS-Linux_Winwing-bridge
 ```
 
 ### 2. Install Export.lua
@@ -186,6 +186,6 @@ DCS World → Export.lua (Lua, UDP) → telemetry_parser.py → telemetry_mappin
 
 ## Other DCS on Linux with WinCtrl troubleshooting
 
--  **The Orion2 Throttle 80 buttons cap:** There's an great kernel module for that-**[linux-winwing](https://github.com/igorinov/linux-winwing).** Should be by default on kernels above v.6.10. The setup is pretty straightforward.
+- **The Orion2 Throttle 80 buttons cap:** There's an great kernel module for that-**[linux-winwing](https://github.com/igorinov/linux-winwing).** Should be by default on kernels above v.6.10. The setup is pretty straightforward.
 - **The Orion2 joystick buttons not reading:**I tried to write something to fix that, but I mostly did break stuff. It could be related to the weird naming convention, which is rejected by the way proton/wine handles those. Personally i use  [**input-remapper**](https://github.com/sezanzeb/input-remapper) and map everything to the keyboard combinations with right ctrl key. Axes work fine, and if there are issues, i map those to the virtual gamepad. Not elegant, but works.
 - **OpenTrack- head tracking:** I recommend using [**opentrack-launcher**](https://github.com/markx86/opentrack-launcher) that runs [opentrack](https://github.com/opentrack/opentrack) inside proton layer. There was issue with proton versions >10.17, so i just stick to 10.17 at the time of writing this. Generally it's pretty reliable.

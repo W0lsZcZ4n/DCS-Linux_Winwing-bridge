@@ -3,7 +3,7 @@
 DCS Native Telemetry Parser
 
 Receives and parses JSON telemetry packets from DCS World Export.lua
-Replaces dcsbios_parser.py for native telemetry approach
+Receives and parses JSON telemetry from DCS World Export.lua
 
 Provides:
 - LED state changes (via callbacks)
@@ -37,7 +37,7 @@ class TelemetryParser:
         self.debug = debug
         self.socket: Optional[socket.socket] = None
 
-        # Subscription system (similar to DCS-BIOS)
+        # Subscription system
         self.subscriptions: Dict[str, list] = {}
 
         # State tracking
@@ -166,6 +166,10 @@ class TelemetryParser:
                     callback(value)
                 except Exception as e:
                     print(f"[Telemetry] Error in callback for {data_path}: {e}")
+
+    def clear_subscriptions(self):
+        """Remove all subscriptions — used before reloading mappings"""
+        self.subscriptions = {}
 
     def get_value(self, data_path: str, default=None) -> Any:
         """
