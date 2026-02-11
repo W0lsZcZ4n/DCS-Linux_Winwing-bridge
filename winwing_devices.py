@@ -75,15 +75,16 @@ class PTO2Controller:
         self.device = WinWingDevice(self.VENDOR_ID, self.PRODUCT_ID, "PTO2 Panel")
         self.handle = None
         self._led_state = {}  # Track LED states
+        self._logged_disconnect = False  # Suppress repeated disconnect messages
 
     def connect(self) -> bool:
         """Open connection to device"""
         if not self.device.hidraw_path:
-            print(f"[PTO2] Device not found (VID:PID {self.VENDOR_ID:04X}:{self.PRODUCT_ID:04X})")
             return False
 
         try:
             self.handle = open(self.device.hidraw_path, 'wb', buffering=0)
+            self._logged_disconnect = False
             print(f"[PTO2] Connected to {self.device.hidraw_path}")
 
             # Initialize with sensible defaults
@@ -113,10 +114,11 @@ class PTO2Controller:
             self.device.hidraw_path = self.device._find_hidraw()
             if self.device.hidraw_path:
                 self.handle = open(self.device.hidraw_path, 'wb', buffering=0)
+                self._logged_disconnect = False
                 print(f"[PTO2] Reconnected to {self.device.hidraw_path}")
                 return True
-        except Exception as e:
-            print(f"[PTO2] Reconnect failed: {e}")
+        except Exception:
+            pass
         self.handle = None
         return False
 
@@ -130,7 +132,9 @@ class PTO2Controller:
             self.handle.write(cmd)
             self.handle.flush()
         except Exception as e:
-            print(f"[PTO2] Command failed: {e} — attempting reconnect")
+            if not self._logged_disconnect:
+                print(f"[PTO2] Device disconnected: {e}")
+                self._logged_disconnect = True
             if self._reconnect():
                 try:
                     self.handle.write(cmd)
@@ -175,15 +179,16 @@ class OrionThrottleController:
         self.device = WinWingDevice(self.VENDOR_ID, self.PRODUCT_ID, "Orion Throttle")
         self.handle = None
         self._motor_active = False
+        self._logged_disconnect = False
 
     def connect(self) -> bool:
         """Open connection to device"""
         if not self.device.hidraw_path:
-            print(f"[Orion Throttle] Device not found")
             return False
 
         try:
             self.handle = open(self.device.hidraw_path, 'wb', buffering=0)
+            self._logged_disconnect = False
             print(f"[Orion Throttle] Connected to {self.device.hidraw_path}")
 
             # Initialize defaults
@@ -213,10 +218,11 @@ class OrionThrottleController:
             self.device.hidraw_path = self.device._find_hidraw()
             if self.device.hidraw_path:
                 self.handle = open(self.device.hidraw_path, 'wb', buffering=0)
+                self._logged_disconnect = False
                 print(f"[Orion Throttle] Reconnected to {self.device.hidraw_path}")
                 return True
-        except Exception as e:
-            print(f"[Orion Throttle] Reconnect failed: {e}")
+        except Exception:
+            pass
         self.handle = None
         return False
 
@@ -229,7 +235,9 @@ class OrionThrottleController:
             self.handle.flush()
             return True
         except Exception as e:
-            print(f"[Orion Throttle] {label} failed: {e} — attempting reconnect")
+            if not self._logged_disconnect:
+                print(f"[Orion Throttle] Device disconnected: {e}")
+                self._logged_disconnect = True
             if self._reconnect():
                 try:
                     self.handle.write(cmd)
@@ -282,15 +290,16 @@ class OrionJoystickController:
     def __init__(self):
         self.device = WinWingDevice(self.VENDOR_ID, self.PRODUCT_ID, "Orion Joystick")
         self.handle = None
+        self._logged_disconnect = False
 
     def connect(self) -> bool:
         """Open connection to device"""
         if not self.device.hidraw_path:
-            print(f"[Orion Joystick] Device not found")
             return False
 
         try:
             self.handle = open(self.device.hidraw_path, 'wb', buffering=0)
+            self._logged_disconnect = False
             print(f"[Orion Joystick] Connected to {self.device.hidraw_path}")
             return True
         except Exception as e:
@@ -314,10 +323,11 @@ class OrionJoystickController:
             self.device.hidraw_path = self.device._find_hidraw()
             if self.device.hidraw_path:
                 self.handle = open(self.device.hidraw_path, 'wb', buffering=0)
+                self._logged_disconnect = False
                 print(f"[Orion Joystick] Reconnected to {self.device.hidraw_path}")
                 return True
-        except Exception as e:
-            print(f"[Orion Joystick] Reconnect failed: {e}")
+        except Exception:
+            pass
         self.handle = None
         return False
 
@@ -333,7 +343,9 @@ class OrionJoystickController:
             self.handle.write(cmd)
             self.handle.flush()
         except Exception as e:
-            print(f"[Orion Joystick] Motor command failed: {e} — attempting reconnect")
+            if not self._logged_disconnect:
+                print(f"[Orion Joystick] Device disconnected: {e}")
+                self._logged_disconnect = True
             if self._reconnect():
                 try:
                     self.handle.write(cmd)
@@ -365,7 +377,6 @@ class DeviceManager:
             self.devices.append(self.joystick)
 
         if not self.devices:
-            print("WARNING: No WinWing devices found!")
             return False
 
         print(f"Connected to {len(self.devices)} device(s)")

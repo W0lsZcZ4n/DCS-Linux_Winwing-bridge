@@ -13,7 +13,7 @@ class TelemetryMappingRule:
     """
     Maps a telemetry data path to a hardware action
 
-    Similar to DCS-BIOS MappingRule but for telemetry data
+    Maps a telemetry data path to a hardware action (LED, motor, etc.)
     """
 
     def __init__(self, data_path: str, transform: Callable, action: Callable, description: str = ""):
@@ -737,7 +737,7 @@ class TelemetryMappingManager:
     """
     Manages telemetry subscriptions and routing to hardware
 
-    Similar to DCS-BIOS MappingManager but for telemetry
+    Routes telemetry data to hardware outputs
     """
 
     def __init__(self, parser, debug: bool = False):
@@ -745,6 +745,11 @@ class TelemetryMappingManager:
         self.debug = debug
         self.mappings = []
         self.haptic_mapping = None  # Store haptic mapping for updates
+
+    def clear_mappings(self):
+        """Remove all mappings — used before reloading after hot-plug"""
+        self.mappings = []
+        self.haptic_mapping = None
 
     def load_mappings(self, throttle=None, pto2=None, joystick=None):
         """Load universal telemetry mappings for all WinWing hardware"""

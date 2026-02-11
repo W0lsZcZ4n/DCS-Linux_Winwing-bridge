@@ -1,5 +1,5 @@
 -- DCS Native Telemetry Export
--- Replaces DCS-BIOS for WinWing LED + Haptic Control
+-- WinWing LED + Haptic Control via UDP
 --
 -- Provides:
 -- - All cockpit LED states (via GetDevice) — per-aircraft arg tables
