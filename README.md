@@ -47,8 +47,6 @@ Haptic effects are universal — they work on any aircraft without per-module co
 - **DCS World** (via Steam/Proton)
 - WinWing Orion 2 devices (PTO2, Throttle, and/or Joystick)
 
-No DCS-BIOS installation needed.
-
 ## Installation
 
 ### 1. Clone This Repository
