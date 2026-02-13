@@ -6,3 +6,4 @@ bridge.log
 .bridge.pid
 md's/
 telemetry_prototype/
+winwing-dcs-bridge.service

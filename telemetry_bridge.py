@@ -10,6 +10,7 @@ Architecture:
 - Runs as a systemd user service
 """
 
+import os
 import sys
 import signal
 import time
@@ -163,13 +164,16 @@ class TelemetryBridge:
                 if not idle and self.mapping_manager:
                     self.mapping_manager.update()
 
-                # Hot-plug: scan for missing devices while idle
-                if idle:
-                    self._check_devices()
+                # Hot-plug: scan for disconnected/missing devices
+                self._check_devices()
 
                 # State transitions
                 if idle and not was_idle:
                     self._all_off()
+                    # Clear cached values so the FIRST packet after idle re-triggers
+                    # all callbacks (hardware was reset by _all_off but parser still
+                    # has stale values — identical values from DCS would be suppressed)
+                    self.parser.last_values.clear()
                     print("[Status] No data — idling (1Hz polling, LEDs off)")
                 elif not idle and was_idle:
                     # Restore hardware brightness groups so flag LEDs are visible
@@ -242,25 +246,41 @@ class TelemetryBridge:
         print("\n✓ LED test complete")
 
     def _check_devices(self):
-        """Check for newly plugged devices and wire them up"""
+        """Check for disconnected or missing devices and reconnect"""
         now = time.time()
         if now - self._last_device_check < self.DEVICE_SCAN_INTERVAL:
             return
         self._last_device_check = now
 
-        # Nothing to do if all devices are already connected
-        if self.throttle and self.pto2 and self.joystick:
-            return
+        changed = False
 
-        found_new = False
+        # Check existing controllers — dead handle or hidraw path gone
+        for name, ctrl in [("Throttle", self.throttle), ("PTO2", self.pto2), ("Joystick", self.joystick)]:
+            if ctrl is None:
+                continue
+            # Detect unplug: hidraw path disappeared from filesystem
+            if ctrl.handle and ctrl.device.hidraw_path and not os.path.exists(ctrl.device.hidraw_path):
+                if not ctrl._logged_disconnect:
+                    print(f"[Hardware] {name} disconnected")
+                    ctrl._logged_disconnect = True
+                try:
+                    ctrl.handle.close()
+                except Exception:
+                    pass
+                ctrl.handle = None
+            # Try to reconnect dead handles
+            if not ctrl.handle:
+                if ctrl._reconnect():
+                    changed = True
 
+        # Check for devices that were never found
         if self.throttle is None:
             try:
                 t = OrionThrottleController()
                 if t.device.hidraw_path and t.connect():
                     self.throttle = t
                     print(f"[Hardware] Throttle connected at {t.device.hidraw_path}")
-                    found_new = True
+                    changed = True
             except Exception:
                 pass
 
@@ -270,7 +290,7 @@ class TelemetryBridge:
                 if p.device.hidraw_path and p.connect():
                     self.pto2 = p
                     print(f"[Hardware] PTO2 Panel connected at {p.device.hidraw_path}")
-                    found_new = True
+                    changed = True
             except Exception:
                 pass
 
@@ -280,18 +300,25 @@ class TelemetryBridge:
                 if j.device.hidraw_path and j.connect():
                     self.joystick = j
                     print(f"[Hardware] Joystick connected at {j.device.hidraw_path}")
-                    found_new = True
+                    changed = True
             except Exception:
                 pass
 
-        if found_new and self.mapping_manager:
-            self.parser.clear_subscriptions()
-            self.mapping_manager.clear_mappings()
-            self.mapping_manager.load_mappings(
-                throttle=self.throttle,
-                pto2=self.pto2,
-                joystick=self.joystick
-            )
+        if changed:
+            stats = self.parser.get_stats()
+            if stats['connected']:
+                # DCS active — reload mappings, _apply_current_state sets correct values
+                if self.mapping_manager:
+                    self.parser.clear_subscriptions()
+                    self.mapping_manager.clear_mappings()
+                    self.mapping_manager.load_mappings(
+                        throttle=self.throttle,
+                        pto2=self.pto2,
+                        joystick=self.joystick
+                    )
+            else:
+                # Idle — turn everything off
+                self._all_off()
 
     def _all_off(self):
         """Turn off all LEDs, backlights, and motors"""

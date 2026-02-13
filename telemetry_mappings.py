@@ -63,10 +63,10 @@ class OrionThrottle_TelemetryMapping:
         ))
 
         # Console Backlight (brightness control, 0.0-1.0 from DCS)
-        # Minimum 25 (~10%) so backlight never fully turns off — QOL feature
+        # Minimum 13 (~5%) — throttle LEDs need higher minimum than PTO2 to be visible
         self.rules.append(TelemetryMappingRule(
             "leds.CONSOLES_BRIGHTNESS",
-            lambda v: max(3, int(float(v) * 255)) if v is not None else 3,
+            lambda v: max(13, int(float(v) * 255)) if v is not None else 13,
             lambda brightness: self.throttle.set_led(self.throttle.BACKLIGHT, brightness),
             "Console Backlight Dimmer"
         ))
@@ -151,7 +151,7 @@ class OrionPTO2_TelemetryMapping:
         ))
 
         # Console Backlight (brightness control, 0.0-1.0 from DCS)
-        # Minimum 25 (~10%) so backlight never fully turns off — QOL feature
+        # Minimum 3 (~1%) so backlight never fully turns off — QOL feature
         self.rules.append(TelemetryMappingRule(
             "leds.CONSOLES_BRIGHTNESS",
             lambda v: max(3, int(float(v) * 255)) if v is not None else 3,
