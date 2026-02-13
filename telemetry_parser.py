@@ -115,17 +115,6 @@ class TelemetryParser:
         self.packet_count += 1
         self.last_packet_time = time.time()
 
-        # Debug: Print first packet to see structure
-        if self.packet_count == 1:
-            print(f"[Telemetry] First packet received:")
-            print(f"  Keys: {list(packet.keys())}")
-            if 'aircraft' in packet:
-                print(f"  Aircraft: {packet['aircraft']}")
-            if 'flight' in packet:
-                print(f"  Flight data: {packet['flight']}")
-            if 'payload' in packet:
-                print(f"  Payload: {packet['payload']}")
-
         # Update aircraft if changed
         if 'aircraft' in packet and packet['aircraft']:
             if self.aircraft != packet['aircraft']:

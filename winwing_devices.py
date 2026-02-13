@@ -71,11 +71,14 @@ class PTO2Controller:
     HALF = 0x10
     HOOK = 0x11
 
+    RECONNECT_INTERVAL = 5.0  # Throttle reconnect attempts
+
     def __init__(self):
         self.device = WinWingDevice(self.VENDOR_ID, self.PRODUCT_ID, "PTO2 Panel")
         self.handle = None
         self._led_state = {}  # Track LED states
         self._logged_disconnect = False  # Suppress repeated disconnect messages
+        self._last_reconnect_attempt = 0
 
     def connect(self) -> bool:
         """Open connection to device"""
@@ -125,7 +128,12 @@ class PTO2Controller:
     def _send_command(self, led_id: int, value: int):
         """Send HID command to device, auto-reconnect on failure"""
         if not self.handle:
-            return
+            now = time.time()
+            if now - self._last_reconnect_attempt < self.RECONNECT_INTERVAL:
+                return
+            self._last_reconnect_attempt = now
+            if not self._reconnect():
+                return
 
         cmd = bytes(self.PREFIX + [0x00, 0x00, 0x03, 0x49, led_id, value, 0x00, 0x00, 0x00, 0x00, 0x00])
         try:
@@ -175,11 +183,14 @@ class OrionThrottleController:
     # Motor ID
     HAPTIC_MOTOR = 0x00
 
+    RECONNECT_INTERVAL = 5.0
+
     def __init__(self):
         self.device = WinWingDevice(self.VENDOR_ID, self.PRODUCT_ID, "Orion Throttle")
         self.handle = None
         self._motor_active = False
         self._logged_disconnect = False
+        self._last_reconnect_attempt = 0
 
     def connect(self) -> bool:
         """Open connection to device"""
@@ -229,7 +240,12 @@ class OrionThrottleController:
     def _write_cmd(self, cmd: bytes, label: str):
         """Write command with auto-reconnect on failure"""
         if not self.handle:
-            return False
+            now = time.time()
+            if now - self._last_reconnect_attempt < self.RECONNECT_INTERVAL:
+                return False
+            self._last_reconnect_attempt = now
+            if not self._reconnect():
+                return False
         try:
             self.handle.write(cmd)
             self.handle.flush()
@@ -249,9 +265,6 @@ class OrionThrottleController:
 
     def set_led(self, led_id: int, value):
         """Set LED (brightness 0-255 for backlight, bool for buttons)"""
-        if not self.handle:
-            return
-
         if isinstance(value, bool):
             value = 0x01 if value else 0x00
         else:
@@ -262,9 +275,6 @@ class OrionThrottleController:
 
     def set_motor(self, intensity: int):
         """Set haptic motor intensity (0-255)"""
-        if not self.handle:
-            return
-
         intensity = max(0, min(255, intensity))
         cmd = bytes(self.MOTOR_PREFIX + [0x00, 0x00, 0x03, 0x49, self.HAPTIC_MOTOR, intensity, 0x00, 0x00, 0x00, 0x00, 0x00])
 
@@ -287,10 +297,13 @@ class OrionJoystickController:
 
     HAPTIC_MOTOR = 0x00
 
+    RECONNECT_INTERVAL = 5.0
+
     def __init__(self):
         self.device = WinWingDevice(self.VENDOR_ID, self.PRODUCT_ID, "Orion Joystick")
         self.handle = None
         self._logged_disconnect = False
+        self._last_reconnect_attempt = 0
 
     def connect(self) -> bool:
         """Open connection to device"""
@@ -333,11 +346,16 @@ class OrionJoystickController:
 
     def set_motor(self, intensity: int):
         """Set haptic motor intensity (0-255)"""
-        if not self.handle:
-            return
-
         intensity = max(0, min(255, intensity))
         cmd = bytes(self.MOTOR_PREFIX + [0x00, 0x00, 0x03, 0x49, self.HAPTIC_MOTOR, intensity, 0x00, 0x00, 0x00, 0x00, 0x00])
+
+        if not self.handle:
+            now = time.time()
+            if now - self._last_reconnect_attempt < self.RECONNECT_INTERVAL:
+                return
+            self._last_reconnect_attempt = now
+            if not self._reconnect():
+                return
 
         try:
             self.handle.write(cmd)
