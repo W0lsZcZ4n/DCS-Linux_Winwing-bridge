@@ -58,7 +58,7 @@ cd DCS-Linux_Winwing-bridge
 
 ### 2. Install Export.lua
 
-Copy the telemetry export script to your DCS Scripts folder:
+Copy the telemetry export script to your DCS ../Saved Games/DCS/Scripts folder:
 
 ```bash
 # For Steam .deb install:
@@ -144,7 +144,7 @@ groups
 ### No telemetry data
 
 1. Make sure DCS World is running and you're in the cockpit
-2. Make sure `Export.lua` is installed in the correct DCS Scripts folder
+2. Make sure `Export.lua` is installed in the correct ../Saved Games/DCS/Scripts folder 
 3. Check the DCS log at `Saved Games/DCS/Logs/WinWing_Export.log`
 
 ### LEDs not changing
