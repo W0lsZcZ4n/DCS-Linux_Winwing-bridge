@@ -642,7 +642,8 @@ class FA18C_HapticFeedback_TelemetryMapping:
         # F/A-18C buffet onset ~15° AOA, scales up to ~35°
         AOA_ONSET = 15.0
         AOA_MAX = 35.0
-        if aoa > AOA_ONSET:
+        on_ground = self.last_wow_left or self.last_wow_right
+        if aoa > AOA_ONSET and not on_ground:
             # Scale 15°→35° to intensity 45→255
             aoa_clamped = min(aoa, AOA_MAX)
             fraction = (aoa_clamped - AOA_ONSET) / (AOA_MAX - AOA_ONSET)
