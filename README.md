@@ -24,7 +24,7 @@ When your landing gear indicator lights up in the cockpit, the LED on your physi
 | Aircraft       | LEDs                                | Haptics |
 | -------------- | ----------------------------------- | ------- |
 | F/A-18C Hornet | Full (all indicators)               | Full    |
-| F-16C Viper    | Partial (gear, master caution, A/A) | Full    |
+| F-16C Viper    | Partial (gear, master caution) | Full    |
 
 Haptic effects are universal — they work on any aircraft without per-module configuration. LED support requires per-aircraft cockpit argument mappings (see [Adding Aircraft](#adding-aircraft-led-support)).
 
