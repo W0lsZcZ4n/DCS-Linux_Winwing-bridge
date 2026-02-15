@@ -181,7 +181,7 @@ DCS World → Export.lua (Lua, UDP) → telemetry_parser.py → telemetry_mappin
 ## Credits
 
 - **Protocol reverse engineering**: Based on [PTO2-for-BMS](https://github.com/ExoLightFR/PTO2-for-BMS) by ExoLightFR
-- [**DCS-Bios**]([GitHub - DCS-Skunkworks/dcs-bios: Data export tool for DCS.](https://github.com/DCS-Skunkworks/dcs-bios)): tool was helpful in initial version and reverse engineering efforts, now deprecated, still great project!
+- [**DCS-Bios**][GitHub - DCS-Skunkworks/dcs-bios: Data export tool for DCS.](https://github.com/DCS-Skunkworks/dcs-bios): tool was helpful in initial version and reverse engineering efforts, now deprecated, still great project!
 - **Development**: Built for the DCS Linux community
 
 ## Other DCS on Linux with WinCtrl troubleshooting
