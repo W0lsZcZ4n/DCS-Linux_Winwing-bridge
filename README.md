@@ -30,15 +30,15 @@ Haptic effects are universal — they work on any aircraft without per-module co
 
 ## Haptic Effects
 
-| Effect                    | Trigger                                                                       | Both Motors |
-| ------------------------- | ----------------------------------------------------------------------------- | ----------- |
-| Gun fire                  | Ammo count decrease                                                           | Yes         |
-| Weapon/ fuel tank release | Station count decrease (weight-scaled intensity)                              | Yes         |
-| Ground wobble             | G-force while on ground (carrier compatible, detects acceleration, not speed) | Yes         |
-| Gear transit              | Gear position between 0 and 1                                                 | Yes         |
-| Gear lock clunk           | Gear reaches locked position                                                  | Yes         |
-| AOA buffeting             | AOA > 15° (scales to 35°)                                                     | Yes         |
-| Landing impact            | Strut compression spike on touchdown                                          | Yes         |
+| Effect                    | Trigger                                                                       
+| ------------------------- | ----------------------------------------------------------------------------- |
+| Gun fire                  | Ammo count decrease                                                           |
+| Weapon/ fuel tank release | Station count decrease (weight-scaled intensity)                              |
+| Ground wobble             | G-force while on ground (carrier compatible, detects acceleration, not speed) |
+| Gear transit              | Gear position between 0 and 1                                                 |
+| Gear lock clunk           | Gear reaches locked position                                                  |
+| AOA buffeting             | AOA > 15° (scales to 35°)                                                     |
+| Landing impact            | Strut compression spike on touchdown                                          |
 
 ## Requirements
 
