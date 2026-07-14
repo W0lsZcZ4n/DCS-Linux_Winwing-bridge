@@ -40,6 +40,65 @@ Haptic effects are universal — they work on any aircraft without per-module co
 | AOA buffeting             | AOA > 15° (scales to 35°)                                                     |
 | Landing impact            | Strut compression spike on touchdown                                          |
 
+## Night Console Dimming
+
+At night the physical WinWing console backlight can be blindingly bright compared to
+the in-game consoles. This feature gradually **caps** the backlight range after dark so
+the real panel never overpowers the sim.
+
+It uses your PC clock and an **approximate location derived from your system timezone**
+(no internet, no extra libraries) to work out local sunrise/sunset, then:
+
+- **Daytime** — full brightness range (unchanged).
+- **After sunset** — over the next 85 minutes the range is squeezed down to a floor of 30%.
+- **Deep night** — capped at 30%.
+- **Before sunrise** — over the 85 minutes before sunrise the range stretches back up to 100%.
+
+The DCS cockpit brightness knob still works normally; the range it maps into is what
+shrinks. The change is gradual enough that a slightly-off location is unnoticeable.
+
+It works out of the box with **no setup**. Optional environment variables (set them in the
+systemd unit's `[Service]` section with `Environment=...`, or your shell) tune or disable it:
+
+| Variable | Default | Meaning |
+| -------- | ------- | ------- |
+| `WINWING_NIGHT_DIM` | `1` | Set to `0` to disable dimming entirely |
+| `WINWING_NIGHT_FLOOR` | `0.30` | Minimum brightness fraction at deep night (0.0–1.0) |
+| `WINWING_NIGHT_RAMP_MIN` | `85` | Length of the dusk/dawn ramp, in minutes |
+| `WINWING_LAT` / `WINWING_LON` | auto | Override the auto-detected location (decimal degrees) |
+
+### Diagnostics
+
+Preview today's sunrise/sunset and the full dimming curve for your machine:
+
+```bash
+python3 console_dimmer.py
+```
+
+Watch it **live** — phase, factor and resulting backlight, updating in real time
+(standalone, needs no DCS or hardware):
+
+```bash
+python3 console_dimmer.py --watch          # updates every 5s
+python3 console_dimmer.py --watch --interval 1
+```
+
+```
+time      phase   factor   cap  throttle   pto2
+21:48:59  dusk     0.805   80%       205    205
+21:49:59  dusk     0.734   73%       187    187
+```
+
+While the bridge itself is running, `--debug` logs a dimmer line you can follow
+in the journal:
+
+```bash
+python3 telemetry_bridge.py --debug
+# or, as a service:
+journalctl --user -u winwing-dcs-bridge -f | grep Dimmer
+#   [Dimmer] 21:49:36 phase=dusk  factor=0.800 (backlight cap 80%)
+```
+
 ## Requirements
 
 - **Linux** (tested on Ubuntu/Debian)
