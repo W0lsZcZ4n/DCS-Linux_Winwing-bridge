@@ -6,7 +6,10 @@ Maps telemetry data paths to WinWing hardware outputs (LEDs and motors)
 Replaces aircraft_mappings.py for telemetry-based approach
 """
 
+import time
 from typing import Callable, Any
+
+from console_dimmer import ConsoleDimmer
 
 
 class TelemetryMappingRule:
@@ -36,8 +39,9 @@ class OrionThrottle_TelemetryMapping:
     Universal — LED key names match Export.lua's combined argument table
     """
 
-    def __init__(self, throttle_controller):
+    def __init__(self, throttle_controller, dimmer: ConsoleDimmer = None):
         self.throttle = throttle_controller
+        self.dimmer = dimmer or ConsoleDimmer()
         self.rules = []
         self._build_mappings()
 
@@ -64,9 +68,10 @@ class OrionThrottle_TelemetryMapping:
 
         # Console Backlight (brightness control, 0.0-1.0 from DCS)
         # Minimum 13 (~5%) — throttle LEDs need higher minimum than PTO2 to be visible
+        # ConsoleDimmer squeezes the range after dark (see console_dimmer.py)
         self.rules.append(TelemetryMappingRule(
             "leds.CONSOLES_BRIGHTNESS",
-            lambda v: max(13, int(float(v) * 255)) if v is not None else 13,
+            lambda v: self.dimmer.scale(v, 13),
             lambda brightness: self.throttle.set_led(self.throttle.BACKLIGHT, brightness),
             "Console Backlight Dimmer"
         ))
@@ -78,8 +83,9 @@ class OrionPTO2_TelemetryMapping:
     Universal — LED key names match Export.lua's combined argument table
     """
 
-    def __init__(self, pto2_controller):
+    def __init__(self, pto2_controller, dimmer: ConsoleDimmer = None):
         self.pto2 = pto2_controller
+        self.dimmer = dimmer or ConsoleDimmer()
         self.rules = []
         self._build_mappings()
 
@@ -152,9 +158,10 @@ class OrionPTO2_TelemetryMapping:
 
         # Console Backlight (brightness control, 0.0-1.0 from DCS)
         # Minimum 3 (~1%) so backlight never fully turns off — QOL feature
+        # ConsoleDimmer squeezes the range after dark (see console_dimmer.py)
         self.rules.append(TelemetryMappingRule(
             "leds.CONSOLES_BRIGHTNESS",
-            lambda v: max(3, int(float(v) * 255)) if v is not None else 3,
+            lambda v: self.dimmer.scale(v, 3),
             lambda brightness: self.pto2.set_brightness(self.pto2.BACKLIGHT, brightness),
             "Console Backlight Dimmer"
         ))
@@ -747,10 +754,18 @@ class TelemetryMappingManager:
         self.mappings = []
         self.haptic_mapping = None  # Store haptic mapping for updates
 
+        # Night console dimming — one shared dimmer for all backlights.
+        # Created once (not per hot-plug reload) so it detects location and
+        # prints its status line a single time.
+        self.console_dimmer = ConsoleDimmer(debug=debug)
+        self._console_appliers = []      # [(apply_fn(brightness), floor), ...]
+        self._last_applied_factor = None  # gate re-applies to when it changes
+
     def clear_mappings(self):
         """Remove all mappings — used before reloading after hot-plug"""
         self.mappings = []
         self.haptic_mapping = None
+        self._console_appliers = []
 
     def load_mappings(self, throttle=None, pto2=None, joystick=None):
         """Load universal telemetry mappings for all WinWing hardware"""
@@ -758,13 +773,17 @@ class TelemetryMappingManager:
 
         # LED Mappings
         if throttle:
-            throttle_mapping = OrionThrottle_TelemetryMapping(throttle)
+            throttle_mapping = OrionThrottle_TelemetryMapping(throttle, self.console_dimmer)
             self.mappings.append(throttle_mapping)
+            self._console_appliers.append(
+                (lambda b, t=throttle: t.set_led(t.BACKLIGHT, b), 13))
             print(f"[Throttle] Loaded {len(throttle_mapping.rules)} LED rules")
 
         if pto2:
-            pto2_mapping = OrionPTO2_TelemetryMapping(pto2)
+            pto2_mapping = OrionPTO2_TelemetryMapping(pto2, self.console_dimmer)
             self.mappings.append(pto2_mapping)
+            self._console_appliers.append(
+                (lambda b, p=pto2: p.set_brightness(p.BACKLIGHT, b), 3))
             print(f"[PTO2] Loaded {len(pto2_mapping.rules)} LED rules")
 
         # Haptic Mappings
@@ -806,6 +825,35 @@ class TelemetryMappingManager:
         """Called every frame for time-based effects"""
         if self.haptic_mapping and hasattr(self.haptic_mapping, 'update'):
             self.haptic_mapping.update()
+
+        self._refresh_console_dimming()
+
+    def _refresh_console_dimming(self):
+        """
+        Re-apply the console backlight when the night-dimming factor drifts.
+
+        Backlight is normally only written when DCS sends a new brightness
+        value. During the dusk/dawn ramps the factor changes on its own while
+        DCS may send nothing, so we periodically re-scale the last known DCS
+        value with the current factor. Gated on a meaningful factor change so
+        we don't spam HID writes (the factor itself is cached ~30s).
+        """
+        dimmer = self.console_dimmer
+        if not dimmer.enabled or not self._console_appliers:
+            return
+
+        factor = dimmer.factor()
+        if self._last_applied_factor is not None and \
+                abs(factor - self._last_applied_factor) < 0.002:
+            return
+
+        raw = self.parser.get_value("leds.CONSOLES_BRIGHTNESS")
+        if raw is None:
+            return  # DCS hasn't sent a console value yet — nothing to re-scale
+
+        for apply_fn, floor in self._console_appliers:
+            apply_fn(dimmer.scale(raw, floor))
+        self._last_applied_factor = factor
 
 
 # ============================================================================
