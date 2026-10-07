@@ -25,9 +25,73 @@ local UPDATE_RATE = 30  -- Hz
 package.path = package.path .. ";.\\LuaSocket\\?.lua"
 package.cpath = package.cpath .. ";.\\LuaSocket\\?.dll"
 
-local socket = require("socket")
-local udp = socket.udp()
-udp:settimeout(0)
+local function get_log_path()
+    local ok, dir = pcall(function() return lfs.writedir() end)
+    if ok and type(dir) == "string" then
+        return dir .. "Logs/WinWing_Export.log"
+    end
+    return "Logs/WinWing_Export.log"
+end
+
+local log_file = io.open(get_log_path(), "w")
+
+local function log(msg)
+    if log_file == nil then return end
+    local ok, err = pcall(function()
+        log_file:write(string.format("%s %s\n", os.date("%Y-%m-%d %H:%M:%S"), msg))
+        log_file:flush()
+    end)
+    if not ok then
+        log_file = nil
+    end
+end
+
+local log_once_table = {}
+local function log_once(key, msg)
+    if not log_once_table[key] then
+        log_once_table[key] = true
+        log(msg)
+    end
+end
+
+local socket
+local socket_load_error
+do
+    local ok, mod = pcall(require, "socket")
+    if ok then
+        socket = mod
+    else
+        socket_load_error = tostring(mod)
+    end
+end
+
+local udp = nil
+if socket ~= nil then
+    local ok, obj = pcall(function()
+        return socket.udp()
+    end)
+    if ok then
+        udp = obj
+    end
+end
+
+if udp ~= nil then
+    pcall(function()
+        udp:settimeout(0)
+    end)
+end
+
+log("log_file type: " .. type(log_file))
+log("socket type: " .. type(socket))
+log("udp type: " .. type(udp))
+
+log("WinWing DCS Native Telemetry Export loaded")
+log("Time: " .. os.date("%Y-%m-%d %H:%M:%S"))
+log("Target: " .. BRIDGE_HOST .. ":" .. BRIDGE_PORT)
+log("Update Rate: " .. UPDATE_RATE .. " Hz")
+log("LuaSocket: " .. (socket ~= nil and ("loaded (type=" .. type(socket) .. ")") or ("failed: " .. tostring(socket_load_error))))
+log("Per-aircraft LED args — no cross-contamination")
+log("Supported: FA-18C_hornet, F-16C_50")
 
 -- ============================================================================
 -- Per-Aircraft LED Argument Tables
@@ -94,6 +158,50 @@ local last_update = 0
 local aircraft_name = nil
 local current_args = nil  -- resolved arg table for current aircraft
 
+local function cannon_field_to_number(value)
+    local number_value = tonumber(value)
+    if number_value ~= nil then
+        return math.floor(number_value)
+    end
+    return nil
+end
+
+local function get_cannon_ammo_value(payload)
+    local cannon = payload.Cannon
+    if type(cannon) ~= "table" then
+        return nil
+    end
+
+    for _, key in ipairs({ "shells", "ammo", "count", "remaining" }) do
+        local value = cannon_field_to_number(cannon[key])
+        if value ~= nil then
+            return value
+        end
+    end
+
+    return nil
+end
+
+local function debug_cannon_payload(payload)
+    local name = tostring(aircraft_name or "unknown")
+    local key = "cannon_debug_" .. name
+    if log_once_table[key] then
+        return
+    end
+
+    local cannon = payload.Cannon
+    if type(cannon) == "table" then
+        local fields = {}
+        for field_name, field_value in pairs(cannon) do
+            fields[#fields + 1] = tostring(field_name) .. "=" .. tostring(field_value)
+        end
+        table.sort(fields)
+        log_once(key, "payload.Cannon[" .. name .. "] fields: " .. table.concat(fields, ", "))
+    else
+        log_once(key, "payload.Cannon missing for " .. name .. " (type=" .. type(cannon) .. ")")
+    end
+end
+
 -- ============================================================================
 -- Helper Functions
 -- ============================================================================
@@ -128,22 +236,146 @@ local function encode_json(t)
     return result
 end
 
-local function get_aircraft_name()
-    local self_data = LoGetSelfData()
-    if self_data and self_data.Name then
-        return self_data.Name
+local function get_export_ns()
+    if type(_G) ~= "table" then return nil end
+    local t = rawget(_G, "Export")
+    if type(t) == "table" then return t end
+    return nil
+end
+
+local export_missing_logged = {}
+local export_error_logged = {}
+
+local function safe_export(func_name, ...)
+    local ns = get_export_ns()
+    local f = nil
+    if type(ns) == "table" then
+        f = rawget(ns, func_name)
     end
+    if type(f) ~= "function" and type(_G) == "table" then
+        f = rawget(_G, func_name)
+    end
+    if type(f) ~= "function" then
+        if not export_missing_logged[func_name] then
+            export_missing_logged[func_name] = true
+            log_once(func_name .. "_missing", "Export API missing: " .. func_name)
+        end
+        return nil
+    end
+    local ok, result = pcall(f, ...)
+    if not ok then
+        if not export_error_logged[func_name] then
+            export_error_logged[func_name] = true
+            log_once(func_name .. "_error", "Export API error " .. func_name .. ": " .. tostring(result))
+        end
+        return nil
+    end
+    return result
+end
+
+local function safe_get_device(id)
+    local f = nil
+    if type(_G) == "table" then
+        f = rawget(_G, "GetDevice")
+    end
+    if type(f) ~= "function" then
+        local ns = get_export_ns()
+        if type(ns) == "table" then
+            f = rawget(ns, "GetDevice")
+        end
+    end
+    if type(f) ~= "function" then
+        log_once("getdevice_missing", "GetDevice unavailable; LED readings disabled")
+        return nil
+    end
+    local ok, result = pcall(f, id)
+    if not ok then
+        log_once("getdevice_error", "GetDevice error: " .. tostring(result))
+        return nil
+    end
+    return result
+end
+
+local function table_keys_str(t)
+    if type(t) ~= "table" then return tostring(t) end
+    local keys = {}
+    for k in pairs(t) do
+        table.insert(keys, tostring(k))
+    end
+    table.sort(keys)
+    return table.concat(keys, ",")
+end
+
+local self_data_dumped = false
+local function dump_self_data(sd)
+    if self_data_dumped then return end
+    self_data_dumped = true
+    log("LoGetSelfData type: " .. type(sd))
+    if type(sd) ~= "table" then return end
+    log("LoGetSelfData keys: " .. table_keys_str(sd))
+    local count = 0
+    for k, v in pairs(sd) do
+        count = count + 1
+        if count <= 80 then
+            if type(v) == "table" then
+                log("self_data[" .. tostring(k) .. "] table keys: " .. table_keys_str(v))
+            else
+                log("self_data[" .. tostring(k) .. "] = " .. tostring(v))
+            end
+        end
+    end
+end
+
+local function name_from_table(t)
+    if type(t) ~= "table" then return nil end
+    local fields = { "Name", "name", "TypeName", "typeName", "ModelName", "modelName", "Type", "type" }
+    for i = 1, #fields do
+        local v = t[fields[i]]
+        if type(v) == "string" and v ~= "" then
+            return v
+        end
+    end
+    return nil
+end
+
+local function get_aircraft_name()
+    local self_data = safe_export("LoGetSelfData")
+    local name = name_from_table(self_data)
+    if name then return name end
+
+    if type(self_data) == "table" then
+        local object_id = self_data.ObjectID or self_data.objectID or self_data.ID or self_data.id
+        if type(object_id) == "number" then
+            local obj = safe_export("LoGetObjectById", object_id)
+            name = name_from_table(obj)
+            if name then return name end
+        end
+
+        local type_value = self_data.Type or self_data.type
+        if type(type_value) == "number" or type(type_value) == "string" then
+            local type_name = safe_export("LoGetNameByType", type_value)
+            if type(type_name) == "string" and type_name ~= "" then
+                return type_name
+            end
+        end
+    end
+
+    dump_self_data(self_data)
     return nil
 end
 
 -- Resolve the arg table for the current aircraft
 local function resolve_aircraft_args(name)
-    if not name then return nil end
-    -- Direct match
+    if type(name) ~= "string" or name == "" then return nil end
     if AIRCRAFT_ARGS[name] then
         return AIRCRAFT_ARGS[name]
     end
-    -- No match — unsupported aircraft (haptics still work, LEDs won't)
+    local lower = name:lower()
+    for key, args in pairs(AIRCRAFT_ARGS) do
+        if type(key) == "string" and key:lower() == lower then
+            return args
+        end
+    end
     return nil
 end
 
@@ -152,7 +384,7 @@ end
 -- ============================================================================
 
 local function get_leds()
-    local dev0 = GetDevice(0)
+    local dev0 = safe_get_device(0)
     if not dev0 then return nil end
 
     if type(dev0.update_arguments) == "function" then
@@ -193,7 +425,7 @@ end
 -- ============================================================================
 
 local function get_wow()
-    local mech_info = LoGetMechInfo()
+    local mech_info = safe_export("LoGetMechInfo")
     local wow = {
         WOW_NOSE = 0,
         WOW_LEFT = 0,
@@ -230,18 +462,17 @@ end
 
 -- Get payload information (weapons, ammo)
 local function get_payload_data()
-    local payload = LoGetPayloadInfo()
+    local payload = safe_export("LoGetPayloadInfo")
     if not payload then
+        log_once("payload_nil_" .. tostring(aircraft_name or "unknown"), "LoGetPayloadInfo returned nil for " .. tostring(aircraft_name or "unknown"))
         return nil
     end
 
-    local data = {}
+    debug_cannon_payload(payload)
 
-    if payload.Cannon and payload.Cannon.shells then
-        data.cannon_ammo = payload.Cannon.shells
-    else
-        data.cannon_ammo = 0
-    end
+    local data = {}
+    local cannon_ammo = get_cannon_ammo_value(payload)
+    data.cannon_ammo = cannon_ammo or 0
 
     data.current_station = payload.CurrentStation or 0
 
@@ -265,7 +496,7 @@ end
 
 -- Get flight data (for haptics)
 local function get_flight_data()
-    local self_data = LoGetSelfData()
+    local self_data = safe_export("LoGetSelfData")
     if not self_data then
         return nil
     end
@@ -282,9 +513,9 @@ local function get_flight_data()
         data.alt_agl = self_data.LatLongAlt.Alt
     end
 
-    data.vertical_velocity = LoGetVerticalVelocity() or 0
+    data.vertical_velocity = safe_export("LoGetVerticalVelocity") or 0
 
-    local accel = LoGetAccelerationUnits()
+    local accel = safe_export("LoGetAccelerationUnits")
     if accel then
         data.g_x = accel.x or 0
         data.g_y = accel.y or 0
@@ -295,17 +526,17 @@ local function get_flight_data()
         data.g_z = 0
     end
 
-    local aoa = LoGetAngleOfAttack()
+    local aoa = safe_export("LoGetAngleOfAttack")
     if aoa then
         data.aoa = aoa  -- already in degrees
     else
         data.aoa = 0
     end
 
-    local ias = LoGetIndicatedAirSpeed()
-    local tas = LoGetTrueAirSpeed()
+    local ias = safe_export("LoGetIndicatedAirSpeed")
+    local tas = safe_export("LoGetTrueAirSpeed")
 
-    local vel = LoGetVectorVelocity()
+    local vel = safe_export("LoGetVectorVelocity")
     local speed_from_vel = 0
     local vx, vy, vz = 0, 0, 0
 
@@ -336,7 +567,7 @@ end
 
 -- Get engine data
 local function get_engine_data()
-    local engine = LoGetEngineInfo()
+    local engine = safe_export("LoGetEngineInfo")
     if not engine then
         return nil
     end
@@ -354,15 +585,107 @@ local function get_engine_data()
     return data
 end
 
+local call_error_logged = {}
+local function safe_call(label, fn, ...)
+    local ok, result = pcall(fn, ...)
+    if not ok then
+        if not call_error_logged[label] then
+            call_error_logged[label] = true
+            log(label .. " error: " .. tostring(result))
+        end
+        return nil
+    end
+    return result
+end
+
+local first_send_logged = false
+local function safe_udp_send(json)
+    if udp == nil then
+        log_once("udp_missing", "UDP object unavailable")
+        return nil, "udp object unavailable"
+    end
+
+    local call_ok, ret_ok, ret_err = pcall(function()
+        return udp:sendto(json, BRIDGE_HOST, BRIDGE_PORT)
+    end)
+
+    if not call_ok then
+        if not first_send_logged then
+            first_send_logged = true
+            log("UDP sendto exception: " .. tostring(ret_ok))
+        end
+        return nil, ret_ok
+    end
+
+    if not first_send_logged then
+        first_send_logged = true
+        log("UDP sendto result: ok=" .. tostring(ret_ok) .. " err=" .. tostring(ret_err))
+    elseif not ret_ok then
+        log_once("udp_send_failed", "UDP sendto failed: " .. tostring(ret_err))
+    end
+
+    return ret_ok, ret_err
+end
+
+local EXPORT_FUNCTIONS = {
+    "LoGetSelfData",
+    "LoGetObjectById",
+    "LoGetNameByType",
+    "LoGetMechInfo",
+    "LoGetPayloadInfo",
+    "LoGetVerticalVelocity",
+    "LoGetAccelerationUnits",
+    "LoGetAngleOfAttack",
+    "LoGetIndicatedAirSpeed",
+    "LoGetTrueAirSpeed",
+    "LoGetVectorVelocity",
+    "LoGetEngineInfo",
+}
+
+local function log_export_availability()
+    local ns = get_export_ns()
+    log("Export namespace: " .. (type(ns) == "table" and "present" or "absent"))
+
+    local allow_object = safe_export("LoIsObjectExportAllowed")
+    local allow_sensor = safe_export("LoIsSensorExportAllowed")
+    local allow_ownship = safe_export("LoIsOwnshipExportAllowed")
+    log("Export allow object/sensor/ownship: " .. tostring(allow_object) .. " / " .. tostring(allow_sensor) .. " / " .. tostring(allow_ownship))
+
+    for i = 1, #EXPORT_FUNCTIONS do
+        local name = EXPORT_FUNCTIONS[i]
+        local f = nil
+        if type(ns) == "table" then
+            f = rawget(ns, name)
+        end
+        if type(f) ~= "function" and type(_G) == "table" then
+            f = rawget(_G, name)
+        end
+        log("API " .. name .. ": " .. (type(f) == "function" and "present" or "absent"))
+    end
+
+    local gd = nil
+    if type(_G) == "table" then
+        gd = rawget(_G, "GetDevice")
+    end
+    if type(gd) ~= "function" and type(ns) == "table" then
+        gd = rawget(ns, "GetDevice")
+    end
+    log("API GetDevice: " .. (type(gd) == "function" and "present" or "absent"))
+end
+
 -- ============================================================================
 -- Main Export Functions
 -- ============================================================================
 
 function LuaExportStart()
+    self_data_dumped = false
+    first_send_logged = false
+    log_export_availability()
     aircraft_name = get_aircraft_name()
     current_args = resolve_aircraft_args(aircraft_name)
     frame_count = 0
     last_update = os.clock()
+    log("LuaExportStart aircraft=" .. tostring(aircraft_name) .. " supported=" .. tostring(current_args ~= nil))
 end
 
 function LuaExportAfterNextFrame()
@@ -387,6 +710,7 @@ function LuaExportAfterNextFrame()
     if current_aircraft ~= aircraft_name then
         aircraft_name = current_aircraft
         current_args = resolve_aircraft_args(aircraft_name)
+        log("Aircraft changed to " .. tostring(aircraft_name) .. " supported=" .. tostring(current_args ~= nil))
     end
 
     local packet = {
@@ -396,42 +720,40 @@ function LuaExportAfterNextFrame()
     }
 
     -- LED states — only reads args for the current aircraft
-    local leds = get_leds()
-    if leds then
-        local wow = get_wow()
-        for k, v in pairs(wow) do
-            leds[k] = v
+    local leds = safe_call("get_leds", get_leds)
+    local wow = safe_call("get_wow", get_wow)
+    if leds or wow then
+        if not leds then
+            leds = {}
+        end
+        if wow then
+            for k, v in pairs(wow) do
+                leds[k] = v
+            end
         end
         packet.leds = leds
     end
 
-    packet.payload = get_payload_data()
-    packet.flight = get_flight_data()
-    packet.engine = get_engine_data()
+    packet.payload = safe_call("get_payload_data", get_payload_data)
+    packet.flight = safe_call("get_flight_data", get_flight_data)
+    packet.engine = safe_call("get_engine_data", get_engine_data)
 
     local json = encode_json(packet)
-    udp:sendto(json, BRIDGE_HOST, BRIDGE_PORT)
+    safe_udp_send(json)
 end
 
 function LuaExportStop()
-    if udp then
-        udp:close()
+    if udp ~= nil then
+        pcall(function()
+            udp:close()
+        end)
     end
-end
+    udp = nil
 
--- ============================================================================
--- Initialization
--- ============================================================================
-
-local log_file = io.open(lfs.writedir() .. "Logs/WinWing_Export.log", "w")
-if log_file then
-    log_file:write("WinWing DCS Native Telemetry Export loaded\n")
-    log_file:write("Time: " .. os.date("%Y-%m-%d %H:%M:%S") .. "\n")
-    log_file:write("Target: " .. BRIDGE_HOST .. ":" .. BRIDGE_PORT .. "\n")
-    log_file:write("Update Rate: " .. UPDATE_RATE .. " Hz\n")
-    log_file:write("\n")
-    log_file:write("Per-aircraft LED args — no cross-contamination\n")
-    log_file:write("Supported: FA-18C_hornet, F-16C_50\n")
-    log_file:write("\n")
-    log_file:close()
+    if log_file ~= nil then
+        pcall(function()
+            log_file:close()
+        end)
+        log_file = nil
+    end
 end

@@ -11,21 +11,26 @@ How it works:
     network, no install step).
   - Returns a "dimming factor" in the range [FLOOR .. 1.0] that the brightness
     mappings multiply into the console backlight:
-        * Daytime                          -> 1.0  (full range)
-        * Over RAMP minutes after sunset   -> 1.0 fading down to FLOOR
-        * Deep night                       -> FLOOR (e.g. 30%)
-        * Over RAMP minutes before sunrise -> FLOOR rising back up to 1.0
+        * Daytime                        -> 1.0  (full range)
+        * Sunset down to sun at SUN_LOW  -> 1.0 fading down to FLOOR
+        * Night (sun below SUN_LOW)      -> FLOOR (e.g. 30%)
+        * The reverse across dawn        -> FLOOR rising back up to 1.0
+    The ramp tracks the sun's actual descent, so it is naturally longer at high
+    latitude / in summer (shallow twilight) and shorter near the equator.
 
 Everything is tunable via environment variables so it needs no code edits to
 adjust or disable:
     WINWING_NIGHT_DIM=0            disable entirely (factor always 1.0)
-    WINWING_NIGHT_FLOOR=0.30       minimum factor at deep night (0.0-1.0)
-    WINWING_NIGHT_RAMP_MIN=85      ramp length in minutes
+    WINWING_NIGHT_FLOOR=0.30       minimum factor at night (0.0-1.0)
+    WINWING_NIGHT_SUN_LOW=-6       sun angle (deg below horizon) = "fully dark".
+                                   -6 civil, -12 nautical; shallower (-3) dims
+                                   sooner after sunset, deeper (-12) later.
     WINWING_LAT / WINWING_LON      override auto-detected location (decimal deg)
 
-The sun-position math is the standard NOAA / Wikipedia "sunrise equation". It is
+The sun-position math is the standard NOAA / Wikipedia "sunrise equation" (the
+same formula evaluated at the horizon for sunset and at SUN_LOW for dusk). It is
 validated against the `astral` library in tools/validate_sun.py (accuracy is a
-couple of minutes, which is far finer than the gradual ramp needs).
+couple of minutes, far finer than the gradual ramp needs).
 """
 
 import os
@@ -53,16 +58,21 @@ def _julian_to_utc(jd: float) -> datetime:
     return datetime.fromtimestamp(unix_seconds, tz=timezone.utc)
 
 
-def sun_events(d, lat: float, lon: float):
+def sun_crossings(d, lat: float, lon: float, angle: float = -0.833):
     """
-    Sunrise and sunset (UTC) for calendar date `d` at lat/lon.
+    Times (UTC) the sun crosses a given altitude `angle` (degrees) on date `d`.
 
     lat: decimal degrees, north positive
     lon: decimal degrees, east positive
+    angle: sun altitude of interest. -0.833 = geometric horizon (sunrise/sunset,
+           allows for refraction + solar radius); -6 = civil twilight; etc.
 
-    Returns (sunrise_utc, sunset_utc, state) where state is one of
-    'normal', 'polar_day' (sun never sets) or 'polar_night' (sun never rises).
-    On the polar states sunrise/sunset are None.
+    Returns (t_up, t_down, state):
+      t_up   — morning crossing (sun ascending through `angle`)
+      t_down — evening crossing (sun descending through `angle`)
+      state  — 'normal', or 'always_below' (sun never climbs to `angle` that day)
+               or 'always_above' (sun never sinks to `angle` that day).
+    On the non-normal states t_up/t_down are None.
     """
     rad = math.radians
 
@@ -84,7 +94,7 @@ def sun_events(d, lat: float, lon: float):
     lam = (M + C + 180.0 + 102.9372) % 360.0
     lam_rad = rad(lam)
 
-    # Solar transit (Julian date of solar noon)
+    # Solar transit (Julian date of solar noon) — independent of `angle`
     j_transit = (2451545.0 + j_star
                  + 0.0053 * math.sin(M_rad)
                  - 0.0069 * math.sin(2 * lam_rad))
@@ -94,19 +104,33 @@ def sun_events(d, lat: float, lon: float):
     cos_dec = math.cos(math.asin(sin_dec))
 
     lat_rad = rad(lat)
-    # Hour angle, with -0.833deg for atmospheric refraction + solar radius
-    cos_omega = ((math.sin(rad(-0.833)) - math.sin(lat_rad) * sin_dec)
+    # Hour angle at which the sun's altitude equals `angle`
+    cos_omega = ((math.sin(rad(angle)) - math.sin(lat_rad) * sin_dec)
                  / (math.cos(lat_rad) * cos_dec))
 
     if cos_omega > 1.0:
-        return (None, None, 'polar_night')   # sun never rises
+        return (None, None, 'always_below')   # never climbs this high
     if cos_omega < -1.0:
-        return (None, None, 'polar_day')      # sun never sets
+        return (None, None, 'always_above')    # never sinks this low
 
     omega = math.degrees(math.acos(cos_omega))
-    j_rise = j_transit - omega / 360.0
-    j_set = j_transit + omega / 360.0
-    return (_julian_to_utc(j_rise), _julian_to_utc(j_set), 'normal')
+    return (_julian_to_utc(j_transit - omega / 360.0),
+            _julian_to_utc(j_transit + omega / 360.0), 'normal')
+
+
+def sun_events(d, lat: float, lon: float):
+    """
+    Sunrise and sunset (UTC) for date `d` — the horizon (-0.833) crossings.
+
+    Returns (sunrise_utc, sunset_utc, state) with state one of
+    'normal', 'polar_day' (sun never sets) or 'polar_night' (sun never rises).
+    """
+    up, down, state = sun_crossings(d, lat, lon, -0.833)
+    if state == 'always_below':
+        return (None, None, 'polar_night')
+    if state == 'always_above':
+        return (None, None, 'polar_day')
+    return (up, down, 'normal')
 
 
 # ============================================================================
@@ -226,8 +250,13 @@ class ConsoleDimmer:
 
         self.enabled = os.environ.get('WINWING_NIGHT_DIM', '1') not in ('0', 'false', 'no')
         self.floor = _clamp(_env_float('WINWING_NIGHT_FLOOR', 0.30), 0.0, 1.0)
-        ramp_min = max(1.0, _env_float('WINWING_NIGHT_RAMP_MIN', 85.0))
-        self.ramp = timedelta(minutes=ramp_min)
+        # Sun depression angle (degrees below the horizon) at which the floor is
+        # reached. Full brightness holds until sunset (sun at the horizon), then
+        # ramps down to the floor as the sun sinks to this angle. -6 = civil
+        # twilight ("properly dark"). A shallower angle (e.g. -3) reaches the
+        # floor sooner after sunset; a deeper one (-12) later. The ramp length
+        # therefore adapts to latitude and season on its own.
+        self.sun_low = _clamp(_env_float('WINWING_NIGHT_SUN_LOW', -6.0), -18.0, -0.5)
 
         loc = resolve_location() if self.enabled else None
         if loc:
@@ -248,8 +277,8 @@ class ConsoleDimmer:
             self.enabled = False
         else:
             print(f"[Dimmer] Night console dimming active — floor {self.floor:.0%}, "
-                  f"ramp {int(ramp_min)} min, location {self.lat:.2f},{self.lon:.2f} "
-                  f"({source})")
+                  f"dark at sun {self.sun_low:g}°, "
+                  f"location {self.lat:.2f},{self.lon:.2f} ({source})")
 
     def factor(self) -> float:
         """Current brightness factor in [floor .. 1.0]. Cached for a while."""
@@ -285,38 +314,51 @@ class ConsoleDimmer:
 
     def _evaluate(self, now_utc: datetime):
         """
-        Brightness factor and phase label for `now_utc` from sun events.
-        Checks yesterday/today/tomorrow so the ramps behave correctly across
-        midnight (e.g. a sunset ramp that spills past 00:00 at high latitudes).
+        Brightness factor and phase label for `now_utc`.
 
-        Returns (factor, phase) where phase is one of
+        Full brightness holds during the day. From sunset the factor ramps down
+        to the floor as the sun sinks from the horizon to `sun_low` degrees
+        below it; the reverse happens before sunrise. Because those are true sun
+        positions, the ramp length adapts to latitude and season on its own.
+
+        Checks yesterday/today/tomorrow so ramps that straddle midnight are
+        found. Returns (factor, phase); phase is one of
         'day', 'dusk', 'night', 'dawn', 'p-day', 'p-night'.
         """
         floor = self.floor
         for day_offset in (-1, 0, 1):
             d = (now_utc + timedelta(days=day_offset)).date()
-            sunrise, sunset, state = sun_events(d, self.lat, self.lon)
+            sunrise, sunset, sun_state = sun_crossings(d, self.lat, self.lon, -0.833)
 
-            if state == 'polar_day':
-                return 1.0, 'p-day'
-            if state == 'polar_night':
-                continue  # try neighbouring days; if all polar, fall to floor
-
-            # Sunrise ramp: floor -> 1.0 across [sunrise - ramp, sunrise]
-            if sunrise - self.ramp <= now_utc < sunrise:
-                frac = (now_utc - (sunrise - self.ramp)) / self.ramp
-                return floor + (1.0 - floor) * frac, 'dawn'
+            if sun_state == 'always_above':
+                return 1.0, 'p-day'          # sun never sets — polar day
+            if sun_state == 'always_below':
+                continue                     # sun never rises — decide at the end
 
             # Daytime: full brightness
             if sunrise <= now_utc <= sunset:
                 return 1.0, 'day'
 
-            # Sunset ramp: 1.0 -> floor across [sunset, sunset + ramp]
-            if sunset < now_utc <= sunset + self.ramp:
-                frac = (now_utc - sunset) / self.ramp
-                return 1.0 - (1.0 - floor) * frac, 'dusk'
+            # Twilight crossings for the "fully dark" angle
+            dawn, dusk, dark_state = sun_crossings(d, self.lat, self.lon, self.sun_low)
+            if dark_state == 'normal':
+                # Dawn ramp: floor -> 1.0 across [civil dawn, sunrise]
+                if dawn <= now_utc < sunrise:
+                    frac = (now_utc - dawn) / (sunrise - dawn)
+                    return floor + (1.0 - floor) * frac, 'dawn'
+                # Dusk ramp: 1.0 -> floor across [sunset, civil dusk]
+                if sunset < now_utc <= dusk:
+                    frac = (now_utc - sunset) / (dusk - sunset)
+                    return 1.0 - (1.0 - floor) * frac, 'dusk'
+            # dark_state == 'always_above': the sun sets but never reaches
+            # `sun_low` (bright high-latitude summer night) — no dusk/dawn ramp
+            # matches, so we fall through and handle it below.
 
-        # Deep night (or all-polar-night): the floor
+        # Not in day or a ramp: either genuinely dark, or a night that never
+        # gets dark. Decide from whether the sun reaches `sun_low` tonight.
+        _, _, dark_today = sun_crossings(now_utc.date(), self.lat, self.lon, self.sun_low)
+        if dark_today == 'always_above':
+            return 1.0, 'day'                # never gets dark — don't dim
         return floor, 'night'
 
 
