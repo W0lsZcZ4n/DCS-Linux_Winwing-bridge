@@ -47,15 +47,19 @@ the in-game consoles. This feature gradually **caps** the backlight range after 
 the real panel never overpowers the sim.
 
 It uses your PC clock and an **approximate location derived from your system timezone**
-(no internet, no extra libraries) to work out local sunrise/sunset, then:
+(no internet, no extra libraries) to work out the sun's position, then:
 
 - **Daytime** — full brightness range (unchanged).
-- **After sunset** — over the next 85 minutes the range is squeezed down to a floor of 30%.
-- **Deep night** — capped at 30%.
-- **Before sunrise** — over the 85 minutes before sunrise the range stretches back up to 100%.
+- **After sunset** — the range is squeezed down to a floor of 30% as the sun sinks from
+  the horizon to 6° below it (civil twilight, i.e. "properly dark").
+- **Night** (sun below that angle) — capped at 30%.
+- **Before sunrise** — the reverse: the range stretches back up to 100% by sunrise.
 
-The DCS cockpit brightness knob still works normally; the range it maps into is what
-shrinks. The change is gradual enough that a slightly-off location is unnoticeable.
+Because the ramp follows the sun's actual descent, its length **adapts to latitude and
+season** — long in high-latitude summer (shallow, drawn-out twilight), short near the
+equator — instead of a fixed number of minutes. The DCS cockpit brightness knob still
+works normally; the range it maps into is what shrinks. The change is gradual enough
+that a slightly-off location is unnoticeable.
 
 It works out of the box with **no setup**. Optional environment variables (set them in the
 systemd unit's `[Service]` section with `Environment=...`, or your shell) tune or disable it:
@@ -63,8 +67,8 @@ systemd unit's `[Service]` section with `Environment=...`, or your shell) tune o
 | Variable | Default | Meaning |
 | -------- | ------- | ------- |
 | `WINWING_NIGHT_DIM` | `1` | Set to `0` to disable dimming entirely |
-| `WINWING_NIGHT_FLOOR` | `0.30` | Minimum brightness fraction at deep night (0.0–1.0) |
-| `WINWING_NIGHT_RAMP_MIN` | `85` | Length of the dusk/dawn ramp, in minutes |
+| `WINWING_NIGHT_FLOOR` | `0.30` | Minimum brightness fraction at night (0.0–1.0) |
+| `WINWING_NIGHT_SUN_LOW` | `-6` | Sun angle (° below horizon) treated as "fully dark". `-3` reaches the floor sooner after sunset, `-12` (nautical) later |
 | `WINWING_LAT` / `WINWING_LON` | auto | Override the auto-detected location (decimal degrees) |
 
 ### Diagnostics

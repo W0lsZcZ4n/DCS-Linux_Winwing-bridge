@@ -5,7 +5,7 @@ After=network.target
 [Service]
 Type=simple
 # Your path here
-ExecStart=/usr/bin/python3 -u %h[path_to_script]
+ExecStart=/usr/bin/python3 -u %h[path_to_telemetry_bridge.py]
 Restart=always
 RestartSec=5
 
