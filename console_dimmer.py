@@ -27,6 +27,10 @@ adjust or disable:
                                    sooner after sunset, deeper (-12) later.
     WINWING_LAT / WINWING_LON      override auto-detected location (decimal deg)
 
+The CLI below accepts the same knobs as flags (--floor, --sun-low, --lat,
+--lon, --nodim); flags win over the environment variables. The bridge
+(telemetry_bridge.py) accepts the same set.
+
 The sun-position math is the standard NOAA / Wikipedia "sunrise equation" (the
 same formula evaluated at the horizon for sunset and at SUN_LOW for dusk). It is
 validated against the `astral` library in tools/validate_sun.py (accuracy is a
@@ -209,12 +213,16 @@ def _location_from_timezone():
     return None
 
 
-def resolve_location():
+def resolve_location(lat=None, lon=None):
     """
     Determine (lat, lon, source) for sun calculations.
-    Priority: WINWING_LAT/WINWING_LON env vars, then timezone lookup.
+    Priority: explicit lat/lon args, WINWING_LAT/WINWING_LON env vars,
+    then timezone lookup. Both lat and lon are required for an override.
     Returns None if nothing usable is found.
     """
+    if lat is not None and lon is not None:
+        return (float(lat), float(lon), 'cli override')
+
     lat_env = os.environ.get('WINWING_LAT')
     lon_env = os.environ.get('WINWING_LON')
     if lat_env and lon_env:
@@ -245,20 +253,38 @@ class ConsoleDimmer:
 
     RECOMPUTE_INTERVAL = 30.0  # seconds between sun/factor recomputations
 
-    def __init__(self, debug: bool = False):
+    def __init__(self, debug: bool = False, enabled: bool = None,
+                 floor: float = None, sun_low: float = None,
+                 lat: float = None, lon: float = None):
+        """
+        Explicit args (enabled/floor/sun_low/lat/lon) take precedence over the
+        WINWING_NIGHT_* / WINWING_LAT / WINWING_LON environment variables;
+        pass None to fall back to the env vars (default behavior).
+        """
         self.debug = debug
 
-        self.enabled = os.environ.get('WINWING_NIGHT_DIM', '1') not in ('0', 'false', 'no')
-        self.floor = _clamp(_env_float('WINWING_NIGHT_FLOOR', 0.30), 0.0, 1.0)
+        if enabled is not None:
+            self.enabled = bool(enabled)
+            disabled_reason = '--nodim'
+        else:
+            self.enabled = os.environ.get('WINWING_NIGHT_DIM', '1') not in ('0', 'false', 'no')
+            disabled_reason = 'WINWING_NIGHT_DIM=0'
+        self.floor = _clamp(
+            floor if floor is not None else _env_float('WINWING_NIGHT_FLOOR', 0.30),
+            0.0, 1.0)
         # Sun depression angle (degrees below the horizon) at which the floor is
         # reached. Full brightness holds until sunset (sun at the horizon), then
         # ramps down to the floor as the sun sinks to this angle. -6 = civil
         # twilight ("properly dark"). A shallower angle (e.g. -3) reaches the
         # floor sooner after sunset; a deeper one (-12) later. The ramp length
         # therefore adapts to latitude and season on its own.
-        self.sun_low = _clamp(_env_float('WINWING_NIGHT_SUN_LOW', -6.0), -18.0, -0.5)
+        self.sun_low = _clamp(
+            sun_low if sun_low is not None else _env_float('WINWING_NIGHT_SUN_LOW', -6.0),
+            -18.0, -0.5)
 
-        loc = resolve_location() if self.enabled else None
+        # Resolve the location even when disabled so the CLI demo can still
+        # draw the curve the dimmer would have applied.
+        loc = resolve_location(lat, lon)
         if loc:
             self.lat, self.lon, source = loc
         else:
@@ -270,7 +296,7 @@ class ConsoleDimmer:
         self._last_compute = 0.0
 
         if not self.enabled:
-            print("[Dimmer] Night console dimming disabled (WINWING_NIGHT_DIM=0)")
+            print(f"[Dimmer] Night console dimming disabled ({disabled_reason})")
         elif self.lat is None:
             print("[Dimmer] Could not determine location — night dimming disabled. "
                   "Set WINWING_LAT and WINWING_LON to enable.")
@@ -384,8 +410,8 @@ def _clamp(value: float, lo: float, hi: float) -> float:
 # CLI: print today's sun times and a factor curve for the current location
 # ============================================================================
 
-def _demo():
-    loc = resolve_location()
+def _demo(dimmer_kwargs):
+    loc = resolve_location(dimmer_kwargs.get('lat'), dimmer_kwargs.get('lon'))
     if not loc:
         print("Could not resolve a location. Set WINWING_LAT / WINWING_LON.")
         return
@@ -400,7 +426,10 @@ def _demo():
     else:
         print(f"Sun state today: {state}")
 
-    dimmer = ConsoleDimmer(debug=False)
+    if dimmer_kwargs.get('enabled') is False:
+        print("\n(--nodim: dimming is disabled at runtime — curve shown for reference)")
+    # enabled forced on so the curve is drawn even alongside --nodim
+    dimmer = ConsoleDimmer(debug=False, **{**dimmer_kwargs, 'enabled': True})
     now = datetime.now(timezone.utc)
     print("\nFactor around now (local time):")
     for minutes in range(-180, 181, 15):
@@ -410,9 +439,9 @@ def _demo():
         print(f"  {t.astimezone().strftime('%H:%M')}  {phase:5s}  {f:5.2f}  {bar}")
 
 
-def _watch(interval: float):
+def _watch(interval: float, dimmer_kwargs):
     """Live diagnostic: print phase / factor / resulting backlight every `interval` s."""
-    dimmer = ConsoleDimmer(debug=False)
+    dimmer = ConsoleDimmer(debug=False, **dimmer_kwargs)
     if not dimmer.enabled:
         return
 
@@ -450,9 +479,33 @@ if __name__ == '__main__':
                     help="Live-monitor phase/factor/backlight in real time.")
     ap.add_argument('--interval', type=float, default=5.0,
                     help="Watch update interval in seconds (default: 5).")
+    ap.add_argument('--nodim', action='store_true',
+                    help="Pretend dimming is disabled (like WINWING_NIGHT_DIM=0).")
+    ap.add_argument('--floor', type=float, metavar='F',
+                    help="Night floor 0.0-1.0 (overrides WINWING_NIGHT_FLOOR).")
+    ap.add_argument('--sun-low', type=float, metavar='DEG',
+                    help="Sun depression angle in degrees "
+                         "(overrides WINWING_NIGHT_SUN_LOW).")
+    ap.add_argument('--lat', type=float, metavar='DEG',
+                    help="Latitude override, use with --lon "
+                         "(overrides WINWING_LAT / timezone).")
+    ap.add_argument('--lon', type=float, metavar='DEG',
+                    help="Longitude override, use with --lat "
+                         "(overrides WINWING_LON / timezone).")
     args = ap.parse_args()
 
+    if (args.lat is None) != (args.lon is None):
+        ap.error("--lat and --lon must be given together")
+
+    dimmer_kwargs = {
+        'enabled': False if args.nodim else None,
+        'floor': args.floor,
+        'sun_low': args.sun_low,
+        'lat': args.lat,
+        'lon': args.lon,
+    }
+
     if args.watch:
-        _watch(args.interval)
+        _watch(args.interval, dimmer_kwargs)
     else:
-        _demo()
+        _demo(dimmer_kwargs)
