@@ -46,45 +46,53 @@ At night the physical WinWing console backlight can be blindingly bright compare
 the in-game consoles. This feature gradually **caps** the backlight range after dark so
 the real panel never overpowers the sim.
 
-It uses your PC clock and an **approximate location derived from your system timezone**
-(no internet, no extra libraries) to work out the sun's position, then:
+It works out of the box with **no setup**. Your PC's clock and an approximate location
+taken from your system timezone work out where the sun is (no internet, no extra
+libraries), and the panel follows it:
 
 - **Daytime** — full brightness range (unchanged).
-- **After sunset** — the range is squeezed down to a floor of 30% as the sun sinks from
-  the horizon to 6° below it (civil twilight, i.e. "properly dark").
-- **Night** (sun below that angle) — capped at 30%.
-- **Before sunrise** — the reverse: the range stretches back up to 100% by sunrise.
+- **After sunset** — the range squeezes down to a 30% floor as the sun sinks from the
+  horizon to 6° below it (civil twilight — "properly dark").
+- **Night** — capped at that floor.
+- **Before sunrise** — the range stretches back up to 100% by sunrise.
 
-Because the ramp follows the sun's actual descent, its length **adapts to latitude and
-season** — long in high-latitude summer (shallow, drawn-out twilight), short near the
-equator — instead of a fixed number of minutes. The DCS cockpit brightness knob still
-works normally; the range it maps into is what shrinks. The change is gradual enough
-that a slightly-off location is unnoticeable.
+Because it tracks the real sun, the twilight ramp **adapts to your latitude and the
+season** — long and shallow in high-latitude summers, short near the equator. The DCS
+cockpit brightness knob still works normally; only the range it maps into shrinks.
+The changes are gradual, so a slightly-off location guess is unnoticeable.
 
-It works out of the box with **no setup**. Optional environment variables (set them in the
-systemd unit's `[Service]` section with `Environment=...`, or your shell) tune or disable it:
+### Tuning it
 
-| Variable | Default | Meaning |
-| -------- | ------- | ------- |
-| `WINWING_NIGHT_DIM` | `1` | Set to `0` to disable dimming entirely |
-| `WINWING_NIGHT_FLOOR` | `0.30` | Minimum brightness fraction at night (0.0–1.0) |
-| `WINWING_NIGHT_SUN_LOW` | `-6` | Sun angle (° below horizon) treated as "fully dark". `-3` reaches the floor sooner after sunset, `-12` (nautical) later |
-| `WINWING_LAT` / `WINWING_LON` | auto | Override the auto-detected location (decimal degrees) |
+If the defaults don't suit you, pass any of these to the bridge — add them to
+`ExecStart` in the systemd unit, or run the bridge directly:
 
-### Diagnostics
+| Flag | What it does |
+| ---- | ------------ |
+| `--nodim` | Keeps the backlight at full range all the time — dimming off entirely. |
+| `--floor 0.5` | How bright the panel may get at night, as a fraction of full (0.0–1.0). Default `0.30` — higher is easier to read, lower is easier on the eyes. |
+| `--sun-low -12` | How dark the sky has to be before the panel sits at the floor. It's the sun's angle below the horizon in degrees: `-3` starts dimming sooner after sunset, `-12` (nautical twilight) later. Default `-6`. |
+| `--lat 52.53 --lon 13.40` | Tells it where you are, if the timezone guess is off (decimal degrees, north/east positive — you can copy values from any map site). |
 
-Preview today's sunrise/sunset and the full dimming curve for your machine:
+```bash
+# e.g. in the service unit:
+ExecStart=/usr/bin/python3 -u %h/Documents/DCS-Linux_Winwing-bridge/telemetry_bridge.py --floor 0.5
+```
+
+### Seeing what it would do
+
+Preview today's sunrise/sunset and the full dimming curve for your machine — no DCS,
+no hardware needed (it takes the same tuning flags):
 
 ```bash
 python3 console_dimmer.py
+python3 console_dimmer.py --lat 69.6 --lon 18.9    # e.g. Tromsø — long summer twilight
 ```
 
-Watch it **live** — phase, factor and resulting backlight, updating in real time
-(standalone, needs no DCS or hardware):
+Watch it **live** — phase, factor and resulting backlight, updating in real time:
 
 ```bash
-python3 console_dimmer.py --watch          # updates every 5s
-python3 console_dimmer.py --watch --interval 1
+python3 console_dimmer.py --watch                  # updates every 5s
+python3 console_dimmer.py --watch --interval 1 --floor 0.5
 ```
 
 ```
@@ -93,15 +101,16 @@ time      phase   factor   cap  throttle   pto2
 21:49:59  dusk     0.734   73%       187    187
 ```
 
-While the bridge itself is running, `--debug` logs a dimmer line you can follow
-in the journal:
+While the bridge is running, `--debug` logs a dimmer line you can follow in the
+journal:
 
 ```bash
-python3 telemetry_bridge.py --debug
-# or, as a service:
 journalctl --user -u winwing-dcs-bridge -f | grep Dimmer
 #   [Dimmer] 21:49:36 phase=dusk  factor=0.800 (backlight cap 80%)
 ```
+
+(There are also `WINWING_*` environment variables for every knob — useful with
+`Environment=` in systemd. Flags win over the environment; run `--help` for details.)
 
 ## Requirements
 
