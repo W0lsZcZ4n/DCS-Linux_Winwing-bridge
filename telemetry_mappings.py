@@ -748,7 +748,7 @@ class TelemetryMappingManager:
     Routes telemetry data to hardware outputs
     """
 
-    def __init__(self, parser, debug: bool = False):
+    def __init__(self, parser, debug: bool = False, dimmer_kwargs: dict = None):
         self.parser = parser
         self.debug = debug
         self.mappings = []
@@ -757,7 +757,9 @@ class TelemetryMappingManager:
         # Night console dimming — one shared dimmer for all backlights.
         # Created once (not per hot-plug reload) so it detects location and
         # prints its status line a single time.
-        self.console_dimmer = ConsoleDimmer(debug=debug)
+        # dimmer_kwargs: ConsoleDimmer overrides from the bridge's dimming
+        # flags; unset entries keep their WINWING_NIGHT_* env-var behavior.
+        self.console_dimmer = ConsoleDimmer(debug=debug, **(dimmer_kwargs or {}))
         self._console_appliers = []      # [(apply_fn(brightness), floor), ...]
         self._last_applied_factor = None  # gate re-applies to when it changes
 

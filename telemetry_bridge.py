@@ -30,10 +30,14 @@ class TelemetryBridge:
         DCS World → Export.lua → UDP → TelemetryParser → Mappings → WinWing Hardware
     """
 
-    def __init__(self, port: int = 7780, test_mode: bool = False, debug: bool = False):
+    def __init__(self, port: int = 7780, test_mode: bool = False, debug: bool = False,
+                 dimmer_kwargs: dict = None):
         self.port = port
         self.test_mode = test_mode
         self.debug = debug
+        # Overrides passed straight to ConsoleDimmer (--nodim/--floor/... from
+        # the CLI); empty keeps the pure WINWING_NIGHT_* env-var behavior.
+        self.dimmer_kwargs = dict(dimmer_kwargs) if dimmer_kwargs else {}
 
         # Components
         self.parser = None
@@ -124,7 +128,8 @@ class TelemetryBridge:
             return False
 
         # Create mapping manager and load universal mappings
-        self.mapping_manager = TelemetryMappingManager(self.parser, debug=self.debug)
+        self.mapping_manager = TelemetryMappingManager(
+            self.parser, debug=self.debug, dimmer_kwargs=self.dimmer_kwargs)
         self.mapping_manager.load_mappings(
             throttle=self.throttle,
             pto2=self.pto2,
@@ -373,6 +378,7 @@ Examples:
   %(prog)s                          # Run with universal mappings
   %(prog)s --test-leds              # Test LED functionality
   %(prog)s --port 7780              # Use custom port
+  %(prog)s --nodim                  # Keep the console backlight at full range
 
 Note:
   LEDs and haptics work on all supported aircraft — no --aircraft flag needed.
@@ -400,7 +406,51 @@ Note:
         help='Enable verbose debug output (haptic values, AOA, telemetry data)'
     )
 
+    dim = parser.add_argument_group(
+        'night console dimming',
+        'Fine-tune or disable the automatic after-dark backlight dimming.')
+
+    dim.add_argument(
+        '--nodim',
+        action='store_true',
+        help='Disable night console dimming entirely'
+    )
+
+    dim.add_argument(
+        '--floor',
+        type=float,
+        metavar='F',
+        help='Night brightness floor as a fraction 0.0-1.0 (default: 0.30)'
+    )
+
+    dim.add_argument(
+        '--sun-low',
+        type=float,
+        metavar='DEG',
+        help='Sun angle (degrees below horizon) treated as "fully dark" — the '
+             'floor is reached there. -3 dims sooner after sunset, -12 later '
+             '(default: -6, civil twilight)'
+    )
+
+    dim.add_argument(
+        '--lat',
+        type=float,
+        metavar='DEG',
+        help='Latitude (decimal degrees) — use with --lon. Default: guessed '
+             'from the system timezone'
+    )
+
+    dim.add_argument(
+        '--lon',
+        type=float,
+        metavar='DEG',
+        help='Longitude (decimal degrees) — use with --lat'
+    )
+
     args = parser.parse_args()
+
+    if (args.lat is None) != (args.lon is None):
+        parser.error("--lat and --lon must be given together")
 
     # Banner
     print("=" * 60)
@@ -413,7 +463,14 @@ Note:
     bridge = TelemetryBridge(
         port=args.port,
         test_mode=args.test_leds,
-        debug=args.debug
+        debug=args.debug,
+        dimmer_kwargs={
+            'enabled': False if args.nodim else None,
+            'floor': args.floor,
+            'sun_low': args.sun_low,
+            'lat': args.lat,
+            'lon': args.lon,
+        }
     )
 
     # Initialize hardware
