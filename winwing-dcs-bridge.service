@@ -4,7 +4,9 @@ After=network.target
 
 [Service]
 Type=simple
-# Your path here
+# Point this at telemetry_bridge.py in your clone. %h expands to your home directory,
+# so replace [path_to_telemetry_bridge.py] below with the folder you cloned into, e.g.
+#   ExecStart=/usr/bin/python3 -u %h/Documents/DCS-Linux_Winwing-bridge/telemetry_bridge.py
 ExecStart=/usr/bin/python3 -u %h[path_to_telemetry_bridge.py]
 Restart=always
 RestartSec=5

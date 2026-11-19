@@ -164,8 +164,11 @@ python3 telemetry_bridge.py
 **As a systemd service (recommended):**
 
 ```bash
-# Edit the ExecStart path in the service file to match your install location
-cp winwing-dcs-bridge.service ~/.config/systemd/user/
+# Run from inside the clone — fills in the ExecStart path for you
+mkdir -p ~/.config/systemd/user
+sed "s|%h\[path_to_telemetry_bridge.py]|$(pwd)/telemetry_bridge.py|" \
+    winwing-dcs-bridge.service > ~/.config/systemd/user/winwing-dcs-bridge.service
+systemctl --user daemon-reload
 systemctl --user enable winwing-dcs-bridge
 systemctl --user start winwing-dcs-bridge
 ```
